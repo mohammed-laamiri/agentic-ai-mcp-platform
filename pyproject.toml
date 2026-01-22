@@ -16,3 +16,6 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+"pydantic-settings>=2.2",
+
