@@ -1,35 +1,38 @@
+# app/schemas/agent.py
+
 from enum import Enum
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
 class AgentType(str, Enum):
+    REACT = "react"
     PLANNER = "planner"
-    EXECUTOR = "executor"
-    TOOL = "tool"
-    RAG = "rag"
-    CRITIC = "critic"
 
 
-class AgentBase(BaseModel):
+class AgentCreate(BaseModel):
     """
-    Base attributes shared by all agents.
+    Input payload for creating an Agent.
     """
 
-    name: str = Field(..., description="Human-readable agent name")
-    agent_type: AgentType
-    description: str | None = None
+    name: str
+    agent_type: AgentType = Field(
+        default=AgentType.PLANNER,
+        description="Agent classification type",
+    )
 
 
-class AgentCreate(AgentBase):
+class AgentRead(BaseModel):
     """
-    Schema for creating an agent.
-    """
-    pass
+    Read-only representation of an Agent.
 
-
-class AgentRead(AgentBase):
-    """
-    Schema returned to API consumers.
+    Used by services and orchestrator.
     """
 
     id: str
+    name: str
+    agent_type: Optional[AgentType] = Field(
+        default=None,
+        description="Optional agent classification (not required for stubs)",
+    )

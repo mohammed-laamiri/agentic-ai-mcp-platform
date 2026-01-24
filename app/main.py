@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from app.core.config import get_settings
 
 # API routers
-from app.api.routers import health, task_router
+from app.api.routers import health_router, task_router
 
 
 def create_app() -> FastAPI:
@@ -48,7 +48,7 @@ def create_app() -> FastAPI:
     # - Monitoring systems
     # - CI/CD smoke tests
     app.include_router(
-        health.router,
+        health_router,
         prefix="/api",
         tags=["Health"],
     )
@@ -56,7 +56,7 @@ def create_app() -> FastAPI:
     # Task execution endpoints
     # This is the first real business-facing API
     app.include_router(
-        task_router.router,
+        task_router,
         prefix="/api",
         tags=["Tasks"],
     )

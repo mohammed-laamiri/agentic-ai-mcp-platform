@@ -9,11 +9,12 @@ This module is responsible for:
 For now, this is a deterministic stub implementation.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
+from app.schemas.agent_execution_context import AgentExecutionContext
 
 
 class AgentService:
@@ -25,17 +26,25 @@ class AgentService:
     - Real LLM / LangGraph logic will replace this later
     """
 
-    def execute(self, agent: AgentRead, task: TaskCreate) -> dict:
+    def execute(
+        self,
+        agent: AgentRead,
+        task: TaskCreate,
+        context: AgentExecutionContext | None = None,
+    ) -> dict:
         """
         Execute a task using an agent.
 
-        Returns a structured execution result.
+        IMPORTANT:
+        - Must return dict to satisfy tests
+        - Context is accepted for future use
         """
+
         return {
             "execution_id": str(uuid4()),
             "agent_id": agent.id,
             "agent_name": agent.name,
             "input": task.description,
             "output": f"[STUB RESPONSE] Agent '{agent.name}' processed task.",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }

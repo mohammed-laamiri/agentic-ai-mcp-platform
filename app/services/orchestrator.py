@@ -21,25 +21,30 @@ from app.services.planner_agent import PlannerAgent
 class OrchestratorService:
     """
     High-level workflow coordinator.
+
+    Architectural role:
+    - Interpret execution plans
+    - Delegate execution
+    - Preserve domain boundaries
     """
 
     def __init__(
         self,
         task_service: TaskService,
         agent_service: AgentService,
-        planner_agent: PlannerAgent,
+        planner_agent: PlannerAgent | None = None,
     ) -> None:
         """
-        Initialize the orchestrator.
+        Initialize the orchestrator with injected dependencies.
 
-        Dependencies are injected to:
-        - Enable testing
-        - Preserve loose coupling
-        - Allow future swaps (LangGraph planners, etc.)
+        Why planner_agent is optional:
+        - Existing tests instantiate OrchestratorService with 2 args
+        - Future agentic flows will inject a real PlannerAgent
+        - Backward compatibility is required during refactor
         """
         self._task_service = task_service
         self._agent_service = agent_service
-        self._planner_agent = planner_agent
+        self._planner_agent = planner_agent or PlannerAgent()
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
@@ -47,8 +52,8 @@ class OrchestratorService:
 
         Workflow:
         1. Create execution context
-        2. Plan execution
-        3. Execute plan
+        2. Generate execution plan
+        3. Interpret & execute plan
         4. Persist result
         """
 
@@ -67,9 +72,9 @@ class OrchestratorService:
         )
 
         # ==================================================
-        # Step 2: Execution phase
+        # Step 2: Execution phase (plan interpretation)
         # ==================================================
-        execution_result: ExecutionResult = self._execute(
+        execution_result: ExecutionResult = self._execute_plan(
             agent=agent,
             task_in=task_in,
             plan=plan,
@@ -81,7 +86,7 @@ class OrchestratorService:
         # ==================================================
         return self._task_service.create(
             task_in=task_in,
-            execution_result=execution_result.model_dump(),
+            execution_result=execution_result,
         )
 
     # ============================================================
@@ -97,7 +102,7 @@ class OrchestratorService:
         """
         Planning phase.
 
-        Delegates planning to the PlannerAgent.
+        Delegates decision-making to the PlannerAgent.
         """
         return self._planner_agent.plan(
             agent=agent,
@@ -105,7 +110,7 @@ class OrchestratorService:
             context=context,
         )
 
-    def _execute(
+    def _execute_plan(
         self,
         agent: AgentRead,
         task_in: TaskCreate,
@@ -113,11 +118,37 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> ExecutionResult:
         """
-        Execution phase.
+        Interpret and execute an execution plan.
 
-        NOTE:
-        - Plan is currently not interpreted
-        - This is intentional and temporary
+        WHY THIS METHOD EXISTS:
+        - Makes execution semantics explicit
+        - Prevents run() from becoming monolithic
+        - Creates a stable seam for future strategies
+
+        Current behavior:
+        - Supports exactly ONE strategy: 'single_agent'
+        - Any other strategy is intentionally rejected
+        """
+
+        if plan.strategy == "single_agent":
+            return self._execute_single_agent(
+                agent=agent,
+                task_in=task_in,
+                context=context,
+            )
+
+        raise ValueError(f"Unsupported execution strategy: {plan.strategy}")
+
+    def _execute_single_agent(
+        self,
+        agent: AgentRead,
+        task_in: TaskCreate,
+        context: AgentExecutionContext,
+    ) -> ExecutionResult:
+        """
+        Execute a task using a single agent.
+
+        This is the ONLY execution path currently supported.
         """
         return self._agent_service.execute(
             agent=agent,

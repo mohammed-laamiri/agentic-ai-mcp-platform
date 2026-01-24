@@ -1,34 +1,40 @@
 from enum import Enum
+from typing import Optional, Dict, Union
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
 class TaskStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-
-
-class TaskBase(BaseModel):
     """
-    Represents a unit of work executed by an agent.
+    Task lifecycle status.
+    """
+    pending = "pending"
+    in_progress = "in_progress"
+    completed = "completed"
+    failed = "failed"
+
+
+class TaskCreate(BaseModel):
+    """
+    Task creation input.
     """
 
-    input: str = Field(..., description="User or system input")
-    status: TaskStatus = TaskStatus.PENDING
+    description: str
+    input: Optional[Dict] = Field(
+        default=None,
+        description="Optional execution input payload",
+    )
 
 
-class TaskCreate(TaskBase):
+class TaskRead(BaseModel):
     """
-    Schema for task submission.
-    """
-    pass
-
-
-class TaskRead(TaskBase):
-    """
-    Schema returned after execution.
+    Task read model.
     """
 
     id: str
-    output: str | None = None
+    description: str
+    status: TaskStatus
+    result: Optional[Union[Dict, str]] = None
+    input: Optional[Dict] = None
+    created_at: Optional[datetime] = None
