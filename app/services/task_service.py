@@ -1,21 +1,35 @@
-import uuid
+"""
+Task service.
+
+Responsible for:
+- Creating task records
+- Managing task lifecycle
+- Returning domain-level task responses
+"""
+
+from datetime import datetime
+from uuid import uuid4
+
 from app.schemas.task import TaskCreate, TaskRead, TaskStatus
 
 
 class TaskService:
     """
-    Manages task lifecycle.
+    Handles task domain logic.
     """
 
-    def create_task(self, task_in: TaskCreate) -> TaskRead:
+    def create(self, task_in: TaskCreate, execution_result: dict) -> TaskRead:
         """
-        Create a new task in PENDING state.
+        Create a task record from execution results.
         """
         return TaskRead(
-            id=str(uuid.uuid4()),
-            input=task_in.input,
-            status=TaskStatus.PENDING,
+            id=str(uuid4()),
+            description=task_in.description,
+            status=TaskStatus.completed,
+            result=execution_result["output"],
+            created_at=datetime.utcnow(),
         )
+
 
     def complete_task(self, task: TaskRead, output: str) -> TaskRead:
         """

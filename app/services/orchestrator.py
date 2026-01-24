@@ -1,31 +1,46 @@
+"""
+Orchestrator service.
+
+Coordinates:
+- Agent execution
+- Task lifecycle
+- Future MCP / LangGraph flows
+"""
+
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
-from app.services.task_service import TaskService
 from app.services.agent_service import AgentService
+from app.services.task_service import TaskService
 
 
 class OrchestratorService:
     """
-    Coordinates agents and tasks.
+    High-level workflow coordinator.
     """
 
     def __init__(
         self,
         task_service: TaskService,
         agent_service: AgentService,
-    ):
-        self.task_service = task_service
-        self.agent_service = agent_service
+    ) -> None:
+        self._task_service = task_service
+        self._agent_service = agent_service
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
-        High-level execution flow.
+        Run a task using an agent.
+
+        This method will later:
+        - Invoke LangGraph
+        - Call MCP tools
+        - Handle retries and reflection
         """
-        task = self.task_service.create_task(task_in)
+        execution_result = self._agent_service.execute(
+            agent=agent,
+            task=task_in,
+        )
 
-        try:
-            task = self.agent_service.execute(agent, task)
-        except Exception as exc:
-            return self.task_service.fail_task(task, str(exc))
-
-        return task
+        return self._task_service.create(
+            task_in=task_in,
+            execution_result=execution_result,
+        )
