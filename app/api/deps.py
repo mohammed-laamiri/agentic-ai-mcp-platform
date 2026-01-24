@@ -1,11 +1,18 @@
-#centralizes shared dependencies (settings, db, agent context later)
+from app.services.task_service import TaskService
+from app.services.agent_service import AgentService
+from app.services.orchestrator import OrchestratorService
 
-from app.core.config import get_settings
-from app.core.config import Settings
+
+def get_task_service() -> TaskService:
+    return TaskService()
 
 
-def get_app_settings() -> Settings:
-    """
-    Dependency to inject application settings.
-    """
-    return get_settings()
+def get_agent_service() -> AgentService:
+    return AgentService()
+
+
+def get_orchestrator() -> OrchestratorService:
+    return OrchestratorService(
+        task_service=get_task_service(),
+        agent_service=get_agent_service(),
+    )
