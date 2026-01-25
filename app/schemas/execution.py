@@ -21,7 +21,7 @@ class ExecutionResult(BaseModel):
     """
     Domain-level execution result.
 
-    This model acts as a contract between:
+    Contract between:
     - AgentService
     - OrchestratorService
     - TaskService

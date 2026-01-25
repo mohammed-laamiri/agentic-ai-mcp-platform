@@ -10,8 +10,8 @@ Acts as the system "conductor":
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
-from app.schemas.execution import ExecutionResult
 from app.schemas.execution_plan import ExecutionPlan
+from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.services.agent_service import AgentService
 from app.services.task_service import TaskService
@@ -36,11 +36,6 @@ class OrchestratorService:
     ) -> None:
         """
         Initialize the orchestrator with injected dependencies.
-
-        Why planner_agent is optional:
-        - Existing tests instantiate OrchestratorService with 2 args
-        - Future agentic flows will inject a real PlannerAgent
-        - Backward compatibility is required during refactor
         """
         self._task_service = task_service
         self._agent_service = agent_service
@@ -74,7 +69,7 @@ class OrchestratorService:
         # ==================================================
         # Step 2: Execution phase (plan interpretation)
         # ==================================================
-        execution_result: ExecutionResult = self._execute_plan(
+        execution_result: dict = self._execute_plan(
             agent=agent,
             task_in=task_in,
             plan=plan,
@@ -116,21 +111,16 @@ class OrchestratorService:
         task_in: TaskCreate,
         plan: ExecutionPlan,
         context: AgentExecutionContext,
-    ) -> ExecutionResult:
+    ) -> dict:
         """
         Interpret and execute an execution plan.
 
-        WHY THIS METHOD EXISTS:
-        - Makes execution semantics explicit
-        - Prevents run() from becoming monolithic
-        - Creates a stable seam for future strategies
-
         Current behavior:
-        - Supports exactly ONE strategy: 'single_agent'
+        - Supports exactly ONE strategy: SINGLE_AGENT
         - Any other strategy is intentionally rejected
         """
 
-        if plan.strategy == "single_agent":
+        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             return self._execute_single_agent(
                 agent=agent,
                 task_in=task_in,
@@ -144,7 +134,7 @@ class OrchestratorService:
         agent: AgentRead,
         task_in: TaskCreate,
         context: AgentExecutionContext,
-    ) -> ExecutionResult:
+    ) -> dict:
         """
         Execute a task using a single agent.
 

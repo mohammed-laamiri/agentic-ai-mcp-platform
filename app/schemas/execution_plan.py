@@ -1,41 +1,35 @@
 """
-Execution Plan schema.
+Execution plan schema.
 
-Represents the output of the planning phase.
+Represents the result of the planning phase.
+Defines HOW a task should be executed, not the result.
 
-Architectural intent:
-- This model describes WHAT should happen, not HOW
-- It is produced by a Planner Agent
-- It is consumed by the Orchestrator
-
-Current responsibilities:
-- Describe a single-step execution plan
-
-Future responsibilities (by design):
-- Multi-step plans
-- Agent routing
-- Tool invocation graphs
-- LangGraph-compatible DAGs
+Acts as a contract between:
+- PlannerAgent (produces plan)
+- OrchestratorService (interprets plan)
 """
 
 from pydantic import BaseModel, Field
 
+from app.schemas.execution_strategy import ExecutionStrategy
+
 
 class ExecutionPlan(BaseModel):
     """
-    Planner output describing the intended execution strategy.
+    Execution plan produced by the PlannerAgent.
 
-    IMPORTANT:
-    - This is NOT an execution result
-    - This does NOT contain business output
+    WHY THIS EXISTS:
+    - Separates planning from execution
+    - Makes execution decisions explicit
+    - Enables future multi-step / multi-agent plans
     """
 
-    strategy: str = Field(
-        default="single_agent",
-        description="Execution strategy identifier",
+    strategy: ExecutionStrategy = Field(
+        ...,
+        description="Execution strategy chosen by the planner",
     )
 
-    reasoning: str = Field(
-        default="Default single-agent execution",
-        description="Planner reasoning (human-readable, optional)",
+    reason: str | None = Field(
+        default=None,
+        description="Optional explanation for why this strategy was chosen",
     )

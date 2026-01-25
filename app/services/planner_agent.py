@@ -1,54 +1,46 @@
 """
-Planner Agent.
+Planner agent.
 
-This module is responsible for deciding HOW a task should be executed.
+Responsible for deciding *how* a task should be executed.
 
-Architectural intent:
-- Encapsulates planning logic
-- Produces a typed ExecutionPlan
-- Does NOT execute tasks
-- Does NOT persist data
+This module currently implements a very small planning logic:
+- Always returns SINGLE_AGENT strategy
 
-Current behavior:
-- Deterministic stub
-- Always returns a single-step execution plan
-
-Future behavior (by design):
-- Multi-agent routing
-- Tool selection
-- LangGraph DAG generation
-- MCP-compatible execution graphs
+Future:
+- Multi-agent planning
+- Tool chain planning
+- Conditional strategies
 """
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
 from app.schemas.execution_plan import ExecutionPlan
+from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
 
 
 class PlannerAgent:
     """
-    Planner Agent.
+    Decides execution strategy for tasks.
 
-    Responsible for translating intent into an execution plan.
+    NOTE:
+    - This is intentionally simple for now.
+    - The goal is to create a stable contract between Planner and Orchestrator.
     """
 
     def plan(
         self,
         agent: AgentRead,
         task: TaskCreate,
-        context: AgentExecutionContext,
+        context: AgentExecutionContext | None = None,
     ) -> ExecutionPlan:
         """
         Produce an execution plan.
 
-        Why this exists:
-        - Separates planning from execution
-        - Makes orchestration explicit
-        - Prevents Orchestrator from becoming "smart"
-
         Current behavior:
-        - Always returns a single-agent execution plan
-        - Context is accepted but not used (by design)
+        - Always chooses SINGLE_AGENT strategy
         """
-        return ExecutionPlan()
+        return ExecutionPlan(
+            strategy=ExecutionStrategy.SINGLE_AGENT,
+            reason="Default strategy for now",
+        )
