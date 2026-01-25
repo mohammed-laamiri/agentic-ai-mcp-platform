@@ -39,7 +39,6 @@ class AgentService:
         - Must return dict to satisfy tests
         - Context is accepted for future use
         """
-
         return {
             "execution_id": str(uuid4()),
             "agent_id": agent.id,

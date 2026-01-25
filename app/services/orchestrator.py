@@ -10,6 +10,7 @@ Acts as the system "conductor":
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
+from app.schemas.execution import ExecutionResult
 from app.schemas.execution_plan import ExecutionPlan
 from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
@@ -36,6 +37,10 @@ class OrchestratorService:
     ) -> None:
         """
         Initialize the orchestrator with injected dependencies.
+
+        NOTE:
+        - planner_agent is optional for backward compatibility.
+        - Tests instantiate OrchestratorService with only task_service + agent_service.
         """
         self._task_service = task_service
         self._agent_service = agent_service
@@ -69,7 +74,7 @@ class OrchestratorService:
         # ==================================================
         # Step 2: Execution phase (plan interpretation)
         # ==================================================
-        execution_result: dict = self._execute_plan(
+        execution_result: ExecutionResult = self._execute_plan(
             agent=agent,
             task_in=task_in,
             plan=plan,
@@ -111,7 +116,7 @@ class OrchestratorService:
         task_in: TaskCreate,
         plan: ExecutionPlan,
         context: AgentExecutionContext,
-    ) -> dict:
+    ) -> ExecutionResult:
         """
         Interpret and execute an execution plan.
 
@@ -134,7 +139,7 @@ class OrchestratorService:
         agent: AgentRead,
         task_in: TaskCreate,
         context: AgentExecutionContext,
-    ) -> dict:
+    ) -> ExecutionResult:
         """
         Execute a task using a single agent.
 
