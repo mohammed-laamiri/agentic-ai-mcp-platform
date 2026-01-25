@@ -23,6 +23,7 @@ class ExecutionStrategy(str, Enum):
     """
 
     SINGLE_AGENT = "single_agent"
+    MULTI_AGENT = "multi_agent"
 
     # Future examples (NOT implemented yet):
     # MULTI_AGENT = "multi_agent"

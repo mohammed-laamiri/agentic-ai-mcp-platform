@@ -46,6 +46,10 @@ class OrchestratorService:
         self._agent_service = agent_service
         self._planner_agent = planner_agent or PlannerAgent()
 
+    # ============================================================
+    # Public API
+    # ============================================================
+
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
         Run a task using an agent.
@@ -74,7 +78,7 @@ class OrchestratorService:
         # ==================================================
         # Step 2: Execution phase (plan interpretation)
         # ==================================================
-        execution_result: ExecutionResult = self._execute_plan(
+        execution_result_dict = self._execute_plan(
             agent=agent,
             task_in=task_in,
             plan=plan,
@@ -86,8 +90,45 @@ class OrchestratorService:
         # ==================================================
         return self._task_service.create(
             task_in=task_in,
-            execution_result=execution_result,
+            execution_result=execution_result_dict,
         )
+
+    def execute(
+        self,
+        agent: AgentRead,
+        task_in: TaskCreate,
+        context: AgentExecutionContext | None = None,
+    ) -> ExecutionResult:
+        """
+        Execute a task using an agent WITHOUT persisting results.
+
+        Returns an ExecutionResult model.
+        """
+
+        # If no context is passed, create one
+        context = context or AgentExecutionContext()
+
+        # ==================================================
+        # Step 1: Planning phase
+        # ==================================================
+        plan: ExecutionPlan = self._plan(
+            agent=agent,
+            task_in=task_in,
+            context=context,
+        )
+
+        # ==================================================
+        # Step 2: Execution phase
+        # ==================================================
+        execution_result_dict = self._execute_plan(
+            agent=agent,
+            task_in=task_in,
+            plan=plan,
+            context=context,
+        )
+
+        # Convert dict to ExecutionResult model
+        return ExecutionResult(**execution_result_dict)
 
     # ============================================================
     # Internal orchestration steps
@@ -116,7 +157,7 @@ class OrchestratorService:
         task_in: TaskCreate,
         plan: ExecutionPlan,
         context: AgentExecutionContext,
-    ) -> ExecutionResult:
+    ) -> dict:
         """
         Interpret and execute an execution plan.
 
@@ -139,11 +180,11 @@ class OrchestratorService:
         agent: AgentRead,
         task_in: TaskCreate,
         context: AgentExecutionContext,
-    ) -> ExecutionResult:
+    ) -> dict:
         """
         Execute a task using a single agent.
 
-        This is the ONLY execution path currently supported.
+        Returns dict for compatibility with TaskService and tests.
         """
         return self._agent_service.execute(
             agent=agent,
