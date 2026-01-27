@@ -37,102 +37,64 @@ class OrchestratorService:
     ) -> None:
         """
         Initialize the orchestrator with injected dependencies.
-
-        NOTE:
-        - planner_agent is optional for backward compatibility.
-        - Tests instantiate OrchestratorService with only task_service + agent_service.
         """
         self._task_service = task_service
         self._agent_service = agent_service
         self._planner_agent = planner_agent or PlannerAgent()
 
-    # ============================================================
+    # ==================================================
     # Public API
-    # ============================================================
+    # ==================================================
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
-        Run a task using an agent.
-
-        Workflow:
-        1. Create execution context
-        2. Generate execution plan
-        3. Interpret & execute plan
-        4. Persist result
+        Run a task using orchestration and persist the result.
         """
 
-        # ==================================================
-        # Step 0: Execution context
-        # ==================================================
         context = AgentExecutionContext()
 
-        # ==================================================
-        # Step 1: Planning phase
-        # ==================================================
-        plan: ExecutionPlan = self._plan(
+        plan = self._plan(
             agent=agent,
             task_in=task_in,
             context=context,
         )
 
-        # ==================================================
-        # Step 2: Execution phase (plan interpretation)
-        # ==================================================
-        execution_result_dict = self._execute_plan(
+        execution_result = self._execute_plan(
             agent=agent,
             task_in=task_in,
             plan=plan,
             context=context,
         )
 
-        # ==================================================
-        # Step 3: Persistence phase
-        # ==================================================
         return self._task_service.create(
             task_in=task_in,
-            execution_result=execution_result_dict,
+            execution_result=execution_result.dict(),
         )
 
-    def execute(
-        self,
-        agent: AgentRead,
-        task_in: TaskCreate,
-        context: AgentExecutionContext | None = None,
-    ) -> ExecutionResult:
+    def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
         """
-        Execute a task using an agent WITHOUT persisting results.
+        Execute a task WITHOUT persistence.
 
-        Returns an ExecutionResult model.
+        Used by /agent/execute endpoint.
         """
+        context = AgentExecutionContext()
 
-        # If no context is passed, create one
-        context = context or AgentExecutionContext()
-
-        # ==================================================
-        # Step 1: Planning phase
-        # ==================================================
-        plan: ExecutionPlan = self._plan(
+        plan = self._plan(
             agent=agent,
             task_in=task_in,
             context=context,
         )
 
-        # ==================================================
-        # Step 2: Execution phase
-        # ==================================================
-        execution_result_dict = self._execute_plan(
+        return self._execute_plan(
             agent=agent,
             task_in=task_in,
             plan=plan,
             context=context,
         )
 
-        # Convert dict to ExecutionResult model
-        return ExecutionResult(**execution_result_dict)
-
-    # ============================================================
+    # ==================================================
     # Internal orchestration steps
-    # ============================================================
+    # ==================================================
 
     def _plan(
         self,
@@ -142,8 +104,6 @@ class OrchestratorService:
     ) -> ExecutionPlan:
         """
         Planning phase.
-
-        Delegates decision-making to the PlannerAgent.
         """
         return self._planner_agent.plan(
             agent=agent,
@@ -157,13 +117,9 @@ class OrchestratorService:
         task_in: TaskCreate,
         plan: ExecutionPlan,
         context: AgentExecutionContext,
-    ) -> dict:
+    ) -> ExecutionResult:
         """
         Interpret and execute an execution plan.
-
-        Current behavior:
-        - Supports exactly ONE strategy: SINGLE_AGENT
-        - Any other strategy is intentionally rejected
         """
 
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
@@ -173,21 +129,72 @@ class OrchestratorService:
                 context=context,
             )
 
+        if plan.strategy == ExecutionStrategy.MULTI_AGENT:
+            return self._execute_multi_agent_sequential(
+                task_in=task_in,
+                plan=plan,
+                context=context,
+            )
+
         raise ValueError(f"Unsupported execution strategy: {plan.strategy}")
+
+    # ==================================================
+    # Execution strategies
+    # ==================================================
 
     def _execute_single_agent(
         self,
         agent: AgentRead,
         task_in: TaskCreate,
         context: AgentExecutionContext,
-    ) -> dict:
+    ) -> ExecutionResult:
         """
         Execute a task using a single agent.
-
-        Returns dict for compatibility with TaskService and tests.
         """
-        return self._agent_service.execute(
+        result = self._agent_service.execute(
             agent=agent,
             task=task_in,
             context=context,
         )
+
+        return ExecutionResult(**result)
+
+    def _execute_multi_agent_sequential(
+        self,
+        task_in: TaskCreate,
+        plan: ExecutionPlan,
+        context: AgentExecutionContext,
+    ) -> ExecutionResult:
+        """
+        Execute multiple agents sequentially.
+
+        Rules:
+        - Agents are executed in order
+        - Output of previous agent becomes input of next agent
+        """
+
+        if not plan.steps:
+            raise ValueError("MULTI_AGENT plan requires execution steps")
+
+        current_input = task_in.description
+        final_result: ExecutionResult | None = None
+
+        for agent in plan.steps:
+            intermediate_task = TaskCreate(
+                description=current_input,
+                input=current_input,
+            )
+
+            raw_result = self._agent_service.execute(
+                agent=agent,
+                task=intermediate_task,
+                context=context,
+            )
+
+            final_result = ExecutionResult(**raw_result)
+            current_input = final_result.output or ""
+
+        if final_result is None:
+            raise RuntimeError("Multi-agent execution produced no result")
+
+        return final_result

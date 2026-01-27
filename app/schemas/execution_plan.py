@@ -9,9 +9,12 @@ Acts as a contract between:
 - OrchestratorService (interprets plan)
 """
 
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 from app.schemas.execution_strategy import ExecutionStrategy
+from app.schemas.agent import AgentRead
 
 
 class ExecutionPlan(BaseModel):
@@ -29,7 +32,15 @@ class ExecutionPlan(BaseModel):
         description="Execution strategy chosen by the planner",
     )
 
-    reason: str | None = Field(
+    steps: Optional[List[AgentRead]] = Field(
+        default=None,
+        description=(
+            "Ordered list of agents to execute sequentially. "
+            "Required when strategy is MULTI_AGENT."
+        ),
+    )
+
+    reason: Optional[str] = Field(
         default=None,
         description="Optional explanation for why this strategy was chosen",
     )

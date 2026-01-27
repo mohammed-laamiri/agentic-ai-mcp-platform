@@ -3,13 +3,14 @@ Planner agent.
 
 Responsible for deciding *how* a task should be executed.
 
-This module currently implements a very small planning logic:
-- Always returns SINGLE_AGENT strategy
+This module currently implements a small but expandable planning logic:
+- SINGLE_AGENT for simple tasks
+- MULTI_AGENT (sequential) for complex tasks
 
 Future:
-- Multi-agent planning
+- LLM-based planning
 - Tool chain planning
-- Conditional strategies
+- Conditional and branching strategies
 """
 
 from app.schemas.agent import AgentRead
@@ -23,9 +24,9 @@ class PlannerAgent:
     """
     Decides execution strategy for tasks.
 
-    NOTE:
-    - This is intentionally simple for now.
-    - The goal is to create a stable contract between Planner and Orchestrator.
+    Architectural role:
+    - Chooses strategy
+    - Defines execution order (not execution itself)
     """
 
     def plan(
@@ -37,10 +38,43 @@ class PlannerAgent:
         """
         Produce an execution plan.
 
-        Current behavior:
-        - Always chooses SINGLE_AGENT strategy
+        Current planning rules (intentionally simple):
+        - Default: SINGLE_AGENT
+        - If task appears complex: MULTI_AGENT (sequential)
         """
+
+        # ----------------------------------
+        # Naive complexity heuristic (v0)
+        # ----------------------------------
+        task_text = task.description.lower()
+
+        is_complex = any(
+            keyword in task_text
+            for keyword in [
+                "analyze",
+                "research",
+                "compare",
+                "summarize",
+                "find",
+                "search",
+                "explain",
+            ]
+        )
+
+        if is_complex:
+            return ExecutionPlan(
+                strategy=ExecutionStrategy.MULTI_AGENT,
+                steps=[
+                    agent,  # Planner-selected lead agent (for now)
+                    agent,  # Placeholder for future specialized agents
+                ],
+                reason="Task classified as complex; using sequential multi-agent execution",
+            )
+
+        # ----------------------------------
+        # Default: SINGLE_AGENT
+        # ----------------------------------
         return ExecutionPlan(
             strategy=ExecutionStrategy.SINGLE_AGENT,
-            reason="Default strategy for now",
+            reason="Task classified as simple; using single-agent execution",
         )
