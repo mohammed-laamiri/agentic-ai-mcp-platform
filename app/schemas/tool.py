@@ -1,19 +1,32 @@
+"""
+Tool schema.
+
+Defines the structured representation of a tool for:
+- registration
+- discovery
+- execution metadata
+"""
+
 from pydantic import BaseModel, Field
 
 
-class ToolBase(BaseModel):
+class ToolCreate(BaseModel):
     """
-    Represents a callable tool exposed to agents.
-    """
-
-    name: str = Field(..., description="Unique tool name")
-    description: str
-    version: str = "v1"
-
-
-class ToolRead(ToolBase):
-    """
-    Tool metadata exposed to agents or MCP.
+    Input payload for creating/registering a tool.
     """
 
-    enabled: bool = True
+    tool_id: str = Field(..., description="Unique tool identifier")
+    name: str = Field(..., description="Human-readable tool name")
+    version: str = Field(..., description="Semantic version of the tool")
+    description: str = Field(..., description="Brief description of the tool")
+
+
+class ToolRead(BaseModel):
+    """
+    Read-only representation of a registered tool.
+    """
+
+    tool_id: str = Field(..., description="Unique tool identifier")
+    name: str = Field(..., description="Human-readable tool name")
+    version: str = Field(..., description="Semantic version of the tool")
+    description: str = Field(..., description="Brief description of the tool")

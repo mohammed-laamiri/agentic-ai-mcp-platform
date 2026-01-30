@@ -2,6 +2,7 @@ from app.services.planner_agent import PlannerAgent
 from app.services.task_service import TaskService
 from app.services.agent_service import AgentService
 from app.services.orchestrator import OrchestratorService
+from app.services.tool_registry import ToolRegistry
 
 
 def get_task_service() -> TaskService:
@@ -22,3 +23,7 @@ def get_orchestrator() -> OrchestratorService:
         agent_service=get_agent_service(),
         planner_agent=get_planner_agent(),
     )
+
+
+def get_tool_registry() -> ToolRegistry:
+    return ToolRegistry()

@@ -20,6 +20,7 @@ from app.core.config import get_settings
 # API routers
 from app.api.routers import health_router, task_router
 from app.api.routers.agent_router import router as agent_router
+from app.api.routers.tool_router import router as tool_router
 
 
 def create_app() -> FastAPI:
@@ -67,6 +68,12 @@ def create_app() -> FastAPI:
         agent_router,
         prefix="/api",
         tags=["Agent"],
+    )
+
+    app.include_router(
+    tool_router,
+    prefix="/api",
+    tags=["Tools"],
     )
 
 
