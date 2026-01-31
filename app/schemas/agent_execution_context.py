@@ -1,47 +1,31 @@
 """
 Agent Execution Context.
 
-This module defines the execution-scoped context object used during
-a single orchestrator `/run` invocation.
+Execution-scoped context object used during
+a single orchestrator run.
 
 Architectural intent:
-- This context is CREATED by the Orchestrator
-- It is READ-ONLY for agents
-- It represents ONE execution run (ephemeral)
-
-This is intentionally separate from `ExecutionContext`:
-- ExecutionContext (existing):
-    - Session / tool / MCP oriented
-    - Longer-lived
-- AgentExecutionContext (this file):
-    - Orchestration-run oriented
-    - Short-lived
-    - Coordination and tracing focused
-
-Current responsibilities:
-- Carry execution metadata
-- Provide a stable threading object between orchestration steps
-
-Future responsibilities (by design, not implemented yet):
-- MCP context root
-- Memory write hooks
-- Retry / reflection metadata
-- Observability correlation
+- Created by the Orchestrator
+- Read-only for agents
+- Collects execution metadata
 """
 
 from datetime import datetime
+from typing import List
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from app.schemas.tool_call import ToolCall
+
 
 class AgentExecutionContext(BaseModel):
     """
-    Execution-scoped context for a single agent run.
+    Execution-scoped context for a single orchestration run.
 
     IMPORTANT:
     - Agents must treat this as READ-ONLY
-    - No agent should mutate this object
+    - Orchestrator owns mutation
     """
 
     run_id: str = Field(
@@ -54,7 +38,10 @@ class AgentExecutionContext(BaseModel):
         description="Timestamp when orchestration began",
     )
 
-    # NOTE:
-    # Intentionally minimal for now.
-    # We are creating a load-bearing abstraction without
-    # prematurely filling it with responsibilities.
+    tool_calls: List[ToolCall] = Field(
+        default_factory=list,
+        description="Tool calls declared by agents during execution",
+    )
+
+    # Intentionally minimal.
+    # This is a load-bearing abstraction.
