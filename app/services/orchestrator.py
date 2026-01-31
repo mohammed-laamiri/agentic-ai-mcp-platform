@@ -1,5 +1,5 @@
 """
-Orchestrator service.
+app/services/orchestrator.py
 
 Coordinates high-level workflows without owning business logic.
 
@@ -111,6 +111,38 @@ class OrchestratorService:
             context=context,
         )
 
+    # ==================================================
+    # Execution plan validation
+    # ==================================================
+
+    def _validate_plan(self, plan: ExecutionPlan) -> None:
+        """
+        Validate execution plan before execution.
+
+        Acts as a safety barrier between planning and execution.
+        """
+        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+            if plan.steps:
+                raise ValueError(
+                    "SINGLE_AGENT strategy must not include execution steps"
+                )
+
+        elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
+            if not plan.steps:
+                raise ValueError(
+                    "MULTI_AGENT strategy requires at least one execution step"
+                )
+            if len(plan.steps) < 2:
+                raise ValueError(
+                    "MULTI_AGENT strategy requires at least two agents"
+                )
+        else:
+            raise ValueError(f"Unknown execution strategy: {plan.strategy}")
+
+    # ==================================================
+    # Execution strategies
+    # ==================================================
+
     def _execute_plan(
         self,
         agent: AgentRead,
@@ -121,6 +153,9 @@ class OrchestratorService:
         """
         Interpret and execute an execution plan.
         """
+
+        # Validate plan before execution
+        self._validate_plan(plan)
 
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             return self._execute_single_agent(
@@ -137,10 +172,6 @@ class OrchestratorService:
             )
 
         raise ValueError(f"Unsupported execution strategy: {plan.strategy}")
-
-    # ==================================================
-    # Execution strategies
-    # ==================================================
 
     def _execute_single_agent(
         self,
@@ -173,9 +204,6 @@ class OrchestratorService:
         - Output of previous agent becomes input of next agent
         """
 
-        if not plan.steps:
-            raise ValueError("MULTI_AGENT plan requires execution steps")
-
         current_input = task_in.description
         final_result: ExecutionResult | None = None
 
@@ -190,11 +218,3 @@ class OrchestratorService:
                 task=intermediate_task,
                 context=context,
             )
-
-            final_result = ExecutionResult(**raw_result)
-            current_input = final_result.output or ""
-
-        if final_result is None:
-            raise RuntimeError("Multi-agent execution produced no result")
-
-        return final_result
