@@ -1,23 +1,17 @@
 """
 Tool Execution Engine.
 
-Coordinates execution of tools in a controlled, safe manner.
+Coordinates execution of tools in a controlled, safe, and observable manner.
 
-Architectural role:
-- Receives ToolCall objects from agents (via Orchestrator)
-- Executes them via ToolExecutor
-- Collects ToolResult objects
-- Maintains execution metadata for observability
-
-Future extensions:
-- Parallel execution
-- Retry / timeout policies
-- Permission enforcement
-- Cost and rate tracking
+Step 7.4 adds:
+- Structured observability hooks
+- Latency measurement
+- Trace correlation (run_id, call_id)
+- Log-ready execution metadata
 """
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Set
 
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
@@ -29,11 +23,30 @@ from app.services.tool_executor import ToolExecutor
 class ToolExecutionEngine:
     """
     Central execution coordinator for tools.
+
+    HARD GUARANTEES:
+    - One tool executes at a time
+    - Same tool_call_id never executes twice
+    - Execution order is deterministic
+    - Every execution is observable
     """
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
-        self._tool_registry = tool_registry
         self._executor = ToolExecutor(tool_registry=tool_registry)
+
+    # --------------------------------------------------
+    # Internal helpers
+    # --------------------------------------------------
+
+    def _init_context_state(self, context: AgentExecutionContext) -> None:
+        """
+        Initialize ephemeral execution state on context.
+        """
+        if not hasattr(context, "executed_tool_call_ids"):
+            context.executed_tool_call_ids: Set[str] = set()  # type: ignore
+
+        if not hasattr(context, "tool_results"):
+            context.tool_results: List[ToolResult] = []  # type: ignore
 
     # --------------------------------------------------
     # Public API
@@ -42,62 +55,78 @@ class ToolExecutionEngine:
     def execute_tool_call(
         self,
         tool_call: ToolCall,
-        context: Optional[AgentExecutionContext] = None,
+        context: AgentExecutionContext,
     ) -> ToolResult:
         """
-        Execute a single ToolCall and optionally store result in context.
-
-        Args:
-            tool_call: The tool invocation request.
-            context: Optional execution context to store results.
-
-        Returns:
-            ToolResult: The structured execution outcome.
+        Execute a single ToolCall with full observability.
         """
-        start_time = datetime.now(timezone.utc)
+        self._init_context_state(context)
 
-        # Assign a call_id if missing for tracing
+        # Ensure correlation ID
         if not tool_call.call_id:
-            tool_call.call_id = f"{tool_call.tool_id}-{start_time.timestamp()}"
+            tool_call.call_id = f"{tool_call.tool_id}-{datetime.now(timezone.utc).timestamp()}"
 
-        # Execute via ToolExecutor
+        # Prevent duplicate execution
+        if tool_call.call_id in context.executed_tool_call_ids:
+            raise RuntimeError(
+                f"ToolCall '{tool_call.call_id}' already executed in this run"
+            )
+
+        started_at = datetime.now(timezone.utc)
+
+        # Execute tool using ToolExecutor
         result = self._executor.execute(tool_call=tool_call)
 
-        # Collect metadata for observability
-        result.metadata["executed_at"] = start_time.isoformat()
+        finished_at = datetime.now(timezone.utc)
+        latency_ms = int((finished_at - started_at).total_seconds() * 1000)
 
-        # Store in execution context if provided
-        if context is not None:
-            if not hasattr(context, "tool_results"):
-                context.tool_results = []  # type: ignore
-            context.tool_results.append(result)  # type: ignore
+        # --------------------------------------------------
+        # Observability metadata
+        # --------------------------------------------------
+        # Ensure metadata exists as a mutable dict
+        if result.metadata is None:
+            result.metadata = {}
+        result.metadata.update(
+            {
+                "run_id": context.run_id,
+                "tool_call_id": tool_call.call_id,
+                "tool_id": tool_call.tool_id,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "latency_ms": latency_ms,
+                "status": "success" if result.success else "error",
+            }
+        )
+
+        # Record execution
+        context.executed_tool_call_ids.add(tool_call.call_id)
+        context.tool_results.append(result)
 
         return result
 
     def execute_batch(
         self,
         tool_calls: List[ToolCall],
-        context: Optional[AgentExecutionContext] = None,
+        context: AgentExecutionContext,
         fail_fast: bool = True,
     ) -> List[ToolResult]:
         """
-        Execute a batch of ToolCalls sequentially.
+        Execute tool calls sequentially with safety and observability.
 
         Args:
-            tool_calls: List of tool invocation requests.
-            context: Optional execution context to store results.
-            fail_fast: Stop execution on first failure if True.
-
-        Returns:
-            List[ToolResult]: Execution outcomes for each call.
+            tool_calls: List of tool calls to execute
+            context: Execution-scoped context
+            fail_fast: Stop execution on first failure
         """
+        self._init_context_state(context)
+
         results: List[ToolResult] = []
 
-        for call in tool_calls:
-            result = self.execute_tool_call(call, context=context)
+        for tool_call in tool_calls:
+            result = self.execute_tool_call(tool_call, context)
             results.append(result)
 
             if fail_fast and not result.success:
-                break  # Stop on first failure
+                break
 
         return results
