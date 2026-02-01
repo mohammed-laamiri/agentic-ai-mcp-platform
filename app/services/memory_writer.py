@@ -34,7 +34,7 @@ class MemoryWriter:
 
     def __init__(self) -> None:
         # In-memory store (temporary, replaceable)
-        # Key: run_id / execution_id, Value: serialized record
+        # Key: record_id, Value: serialized record
         self._store: Dict[str, Dict[str, Any]] = {}
 
     # --------------------------------------------------
@@ -91,14 +91,12 @@ class MemoryWriter:
         return record_id
 
     # --------------------------------------------------
-    # Retrieval (optional / for inspection)
+    # Retrieval helpers
     # --------------------------------------------------
 
     def get(self, record_id: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve a stored memory record by ID.
-
-        Returns None if not found.
         """
         return self._store.get(record_id)
 
@@ -107,6 +105,32 @@ class MemoryWriter:
         Return all stored memory records.
         """
         return list(self._store.values())
+
+    def get_by_task_id(self, task_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve all memory records for a given task ID.
+        """
+        return [rec for rec in self._store.values() if rec.get("task_id") == task_id]
+
+    def get_by_session_id(self, session_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve all memory records for a given session ID.
+        """
+        return [
+            rec for rec in self._store.values()
+            if rec.get("session_context", {}).get("session_id") == session_id
+        ]
+
+    def get_latest(self, count: int = 1) -> List[Dict[str, Any]]:
+        """
+        Get the most recent `count` execution records.
+        """
+        sorted_records = sorted(
+            self._store.values(),
+            key=lambda r: r.get("timestamp", ""),
+            reverse=True
+        )
+        return sorted_records[:count]
 
     def clear(self) -> None:
         """

@@ -8,6 +8,8 @@ Acts as the system conductor:
 - Does NOT know HOW things are implemented
 """
 
+from typing import Optional
+
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
 from app.schemas.execution import ExecutionResult
@@ -36,7 +38,7 @@ class Orchestrator:
         agent_service: AgentService,
         tool_registry: ToolRegistry,
         memory_writer: MemoryWriter,
-        planner_agent: PlannerAgent | None = None,
+        planner_agent: Optional[PlannerAgent] = None,
     ) -> None:
         self._task_service = task_service
         self._agent_service = agent_service
@@ -50,7 +52,7 @@ class Orchestrator:
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
-        Run a task using orchestration and persist result.
+        Run a task using orchestration and persist final result.
         """
         agent_context = AgentExecutionContext()
 
@@ -64,7 +66,7 @@ class Orchestrator:
 
     def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
         """
-        Execute a task without persistence.
+        Execute a task without persistence to TaskService.
         """
         agent_context = AgentExecutionContext()
 
@@ -95,11 +97,9 @@ class Orchestrator:
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
-
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             if not plan.steps or len(plan.steps) < 2:
                 raise ValueError("MULTI_AGENT requires at least two agents")
-
         else:
             raise ValueError(f"Unknown strategy: {plan.strategy}")
 
@@ -118,14 +118,12 @@ class Orchestrator:
 
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             result = self._execute_single_agent(agent, task_in, agent_context)
-
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             result = self._execute_multi_agent_sequential(task_in, plan, agent_context)
-
         else:
             raise ValueError(f"Unsupported strategy: {plan.strategy}")
 
-        # Execute tool calls AFTER agent reasoning
+        # Execute declared tool calls AFTER agent reasoning
         if agent_context.tool_calls:
             self._tool_engine.execute_batch(
                 tool_calls=agent_context.tool_calls,
@@ -133,9 +131,9 @@ class Orchestrator:
                 fail_fast=True,
             )
 
-        # Persist execution memory
+        # Persist final execution memory
         session_context = ExecutionContext(
-            task_id=getattr(task_in, "id", "unknown"),
+            task_id=getattr(task_in, "id", "unknown-task"),
             user_input=task_in.description,
         )
 
@@ -162,6 +160,17 @@ class Orchestrator:
         for call in raw_result.get("tool_calls", []):
             context.tool_calls.append(ToolCall(**call))
 
+        # Persist memory for single-agent step
+        session_context = ExecutionContext(
+            task_id=getattr(task_in, "id", "unknown-task"),
+            user_input=task_in.description,
+        )
+        self._memory_writer.write(
+            execution_result=ExecutionResult(**raw_result),
+            agent_context=context,
+            session_context=session_context,
+        )
+
         return ExecutionResult(**raw_result)
 
     def _execute_multi_agent_sequential(
@@ -170,8 +179,11 @@ class Orchestrator:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
+        """
+        Execute a multi-agent plan sequentially, persisting each step.
+        """
         current_input = task_in.description
-        final_result: ExecutionResult | None = None
+        final_result: Optional[ExecutionResult] = None
 
         for agent in plan.steps:
             intermediate_task = TaskCreate(
@@ -179,17 +191,25 @@ class Orchestrator:
                 input=current_input,
             )
 
-            raw_result = self._agent_service.execute(
-                agent,
-                intermediate_task,
-                context,
-            )
+            raw_result = self._agent_service.execute(agent, intermediate_task, context)
 
             for call in raw_result.get("tool_calls", []):
                 context.tool_calls.append(ToolCall(**call))
 
-            final_result = ExecutionResult(**raw_result)
-            current_input = final_result.output or ""
+            step_result = ExecutionResult(**raw_result)
+            final_result = step_result
+            current_input = step_result.output or ""
+
+            # Persist each step to MemoryWriter
+            session_context = ExecutionContext(
+                task_id=getattr(task_in, "id", "unknown-task"),
+                user_input=intermediate_task.description,
+            )
+            self._memory_writer.write(
+                execution_result=step_result,
+                agent_context=context,
+                session_context=session_context,
+            )
 
         if final_result is None:
             raise RuntimeError("Multi-agent execution produced no result")
