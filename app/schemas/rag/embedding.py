@@ -1,10 +1,34 @@
-from pydantic import BaseModel
+"""
+Embedding schema.
+
+Represents a vector embedding produced from text.
+
+Used for:
+- Documents
+- Chunks
+- Queries
+"""
+
 from typing import List
+from pydantic import BaseModel, Field
 
 
-class EmbeddingVector(BaseModel):
+class Embedding(BaseModel):
     """
-    Vector representation of text.
+    Vector embedding representation.
     """
-    id: str
-    vector: List[float]
+
+    vector: List[float] = Field(
+        ...,
+        description="Numerical embedding vector",
+    )
+
+    model: str = Field(
+        ...,
+        description="Embedding model identifier",
+    )
+
+    dimension: int = Field(
+        ...,
+        description="Vector dimensionality",
+    )

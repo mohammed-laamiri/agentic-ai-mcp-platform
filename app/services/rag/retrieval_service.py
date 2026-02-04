@@ -1,42 +1,70 @@
+"""
+Retrieval Service.
+
+Responsible for:
+- Querying the VectorStore
+- Returning relevant chunks for a user query
+- Acting as the read-path of the RAG pipeline
+
+Architectural role:
+- Stateless
+- Pure retrieval (no LLM calls)
+- Orchestrator-agnostic
+- Embedding-agnostic (expects pre-embedded query)
+
+Future enhancements:
+- Hybrid search (keyword + vector)
+- Metadata filtering
+- Re-ranking
+- Multi-index routing
+"""
+
 from typing import List
 
+from app.services.rag.vector_store import VectorStore
 from app.schemas.rag.retrieval import RetrievalResult
-from app.schemas.rag.chunk import DocumentChunk
-from app.services.rag.vector_store import InMemoryVectorStore
+from app.schemas.rag.chunk import Chunk
+from app.schemas.rag.embedding import Embedding
 
 
 class RetrievalService:
     """
-    Retrieves relevant chunks from vector store.
+    Executes vector similarity search against the VectorStore.
     """
 
     def __init__(
         self,
-        vector_store: InMemoryVectorStore,
-        chunks: List[DocumentChunk],
+        vector_store: VectorStore,
+        top_k: int = 5,
     ) -> None:
         self._vector_store = vector_store
-        self._chunks = {c.chunk_id: c for c in chunks}
+        self._top_k = top_k
+
+    # --------------------------------------------------
+    # Public API
+    # --------------------------------------------------
 
     def retrieve(
         self,
-        query_vector: List[float],
-        top_k: int = 5,
-    ) -> List[RetrievalResult]:
-        matches = self._vector_store.similarity_search(query_vector, top_k)
+        query_embedding: Embedding,
+    ) -> RetrievalResult:
+        """
+        Retrieve relevant chunks for a query embedding.
 
-        results: List[RetrievalResult] = []
-        for chunk_id, score in matches:
-            chunk = self._chunks.get(chunk_id)
-            if not chunk:
-                continue
+        Args:
+            query_embedding: Embedded representation of the user query
 
-            results.append(
-                RetrievalResult(
-                    chunk_id=chunk_id,
-                    content=chunk.content,
-                    score=score,
-                )
-            )
+        Returns:
+            RetrievalResult containing ranked chunks
+        """
+        matches = self._vector_store.search(
+            embedding=query_embedding.vector,
+            top_k=self._top_k,
+        )
 
-        return results
+        chunks: List[Chunk] = [match.chunk for match in matches]
+
+        return RetrievalResult(
+            chunks=chunks,
+            total=len(chunks),
+        )

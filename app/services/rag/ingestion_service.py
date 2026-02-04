@@ -1,7 +1,7 @@
 from typing import List
 
 from app.schemas.rag.document import Document
-from app.schemas.rag.chunk import DocumentChunk
+from app.schemas.rag.chunk import Chunk
 from app.services.rag.chunking_service import ChunkingService
 from app.services.rag.embedding_service import EmbeddingService
 from app.services.rag.vector_store import InMemoryVectorStore
@@ -21,9 +21,9 @@ class RAGIngestionService:
         self._chunker = chunker
         self._embedder = embedder
         self._vector_store = vector_store
-        self._chunks: List[DocumentChunk] = []
+        self._chunks: List[Chunk] = []
 
-    def ingest(self, document: Document) -> List[DocumentChunk]:
+    def ingest(self, document: Document) -> List[Chunk]:
         chunks = self._chunker.chunk(document)
 
         for chunk in chunks:
@@ -34,5 +34,5 @@ class RAGIngestionService:
         return chunks
 
     @property
-    def chunks(self) -> List[DocumentChunk]:
+    def chunks(self) -> List[Chunk]:
         return self._chunks
