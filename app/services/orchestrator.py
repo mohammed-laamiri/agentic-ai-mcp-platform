@@ -25,6 +25,8 @@ from app.services.planner_agent import PlannerAgent
 from app.services.tool_execution_engine import ToolExecutionEngine
 from app.services.tool_registry import ToolRegistry
 from app.services.memory_writer import MemoryWriter
+from app.services.rag.retrieval_service import RetrievalService
+from app.schemas.rag.embedding import Embedding
 
 
 class Orchestrator:
@@ -39,12 +41,14 @@ class Orchestrator:
         tool_registry: ToolRegistry,
         memory_writer: MemoryWriter,
         planner_agent: Optional[PlannerAgent] = None,
+        retrieval_service: Optional[RetrievalService] = None,
     ) -> None:
         self._task_service = task_service
         self._agent_service = agent_service
         self._planner_agent = planner_agent or PlannerAgent()
         self._tool_engine = ToolExecutionEngine(tool_registry=tool_registry)
         self._memory_writer = memory_writer
+        self._retrieval_service = retrieval_service
 
     # ==================================================
     # Public API
@@ -55,6 +59,13 @@ class Orchestrator:
         Run a task using orchestration and persist final result.
         """
         agent_context = AgentExecutionContext()
+
+        # Inject retrieved chunks into context if retrieval service is provided
+        if self._retrieval_service:
+            # TODO: Replace with actual query embedding logic based on task_in
+            query_embedding = Embedding(vector=[])  # placeholder empty embedding
+            retrieval_result = self._retrieval_service.retrieve(query_embedding=query_embedding)
+            agent_context.retrieved_chunks = retrieval_result.chunks
 
         plan = self._plan(agent, task_in, agent_context)
         result = self._execute_plan(agent, task_in, plan, agent_context)
@@ -69,6 +80,12 @@ class Orchestrator:
         Execute a task without persistence to TaskService.
         """
         agent_context = AgentExecutionContext()
+
+        # Inject retrieved chunks into context if retrieval service is provided
+        if self._retrieval_service:
+            query_embedding = Embedding(vector=[])  # placeholder
+            retrieval_result = self._retrieval_service.retrieve(query_embedding=query_embedding)
+            agent_context.retrieved_chunks = retrieval_result.chunks
 
         plan = self._plan(agent, task_in, agent_context)
         return self._execute_plan(agent, task_in, plan, agent_context)

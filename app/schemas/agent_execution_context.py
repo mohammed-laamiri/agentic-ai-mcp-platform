@@ -17,6 +17,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from app.schemas.tool_call import ToolCall
+from app.schemas.rag.chunk import Chunk
 
 
 class AgentExecutionContext(BaseModel):
@@ -41,6 +42,11 @@ class AgentExecutionContext(BaseModel):
     tool_calls: List[ToolCall] = Field(
         default_factory=list,
         description="Tool calls declared by agents during execution",
+    )
+
+    retrieved_chunks: List[Chunk] = Field(
+        default_factory=list,
+        description="Knowledge chunks retrieved via RAG for this execution",
     )
 
     # Intentionally minimal.
