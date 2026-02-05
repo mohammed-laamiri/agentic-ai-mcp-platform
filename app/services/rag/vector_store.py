@@ -8,35 +8,25 @@ Architectural role:
 - OpenSearch-first design (but storage-agnostic)
 - Used by RetrievalService and IngestionService
 - NO knowledge of agents or orchestration
-
-Design principles:
-- Deterministic interfaces
-- Explicit metadata handling
-- Future-proof for filters, namespaces, multi-index
 """
 
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
 
+from opensearchpy import OpenSearch
+
 from app.schemas.rag.embedding import Embedding
 from app.schemas.rag.retrieval import RetrievalResult
 
 
+# ==================================================
+# Interface
+# ==================================================
+
 class VectorStore(ABC):
     """
     Abstract Vector Store contract.
-
-    Concrete implementations may include:
-    - OpenSearchVectorStore
-    - PineconeVectorStore
-    - InMemoryVectorStore (for tests)
-
-    This interface MUST remain stable.
     """
-
-    # --------------------------------------------------
-    # Index lifecycle
-    # --------------------------------------------------
 
     @abstractmethod
     def create_index(
@@ -45,19 +35,7 @@ class VectorStore(ABC):
         dimension: int,
         metadata_schema: Optional[Dict[str, Any]] = None,
     ) -> None:
-        """
-        Create a vector index.
-
-        Args:
-            index_name: Logical index name
-            dimension: Embedding vector size
-            metadata_schema: Optional schema for metadata fields
-        """
         raise NotImplementedError
-
-    # --------------------------------------------------
-    # Write operations
-    # --------------------------------------------------
 
     @abstractmethod
     def upsert_embeddings(
@@ -65,18 +43,7 @@ class VectorStore(ABC):
         index_name: str,
         embeddings: List[Embedding],
     ) -> None:
-        """
-        Insert or update embeddings.
-
-        Args:
-            index_name: Target index
-            embeddings: List of Embedding objects
-        """
         raise NotImplementedError
-
-    # --------------------------------------------------
-    # Read operations
-    # --------------------------------------------------
 
     @abstractmethod
     def similarity_search(
@@ -86,35 +53,130 @@ class VectorStore(ABC):
         top_k: int = 5,
         filters: Optional[Dict[str, Any]] = None,
     ) -> List[RetrievalResult]:
-        """
-        Perform vector similarity search.
-
-        Args:
-            index_name: Target index
-            query_vector: Query embedding
-            top_k: Number of results to return
-            filters: Optional metadata filters
-
-        Returns:
-            Ranked list of RetrievalResult
-        """
         raise NotImplementedError
 
 
 # ==================================================
-# In-memory reference implementation (DEV / TEST)
+# OpenSearch implementation (PROD)
+# ==================================================
+
+class OpenSearchVectorStore(VectorStore):
+    """
+    OpenSearch-backed vector store using KNN.
+    """
+
+    def __init__(
+        self,
+        host: str,
+        port: int = 443,
+        use_ssl: bool = True,
+        http_auth: Optional[Any] = None,
+    ) -> None:
+        self._client = OpenSearch(
+            hosts=[{"host": host, "port": port}],
+            use_ssl=use_ssl,
+            http_auth=http_auth,
+        )
+
+    def create_index(
+        self,
+        index_name: str,
+        dimension: int,
+        metadata_schema: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if self._client.indices.exists(index_name):
+            return
+
+        properties: Dict[str, Any] = {
+            "vector": {
+                "type": "knn_vector",
+                "dimension": dimension,
+            },
+            "content": {"type": "text"},
+        }
+
+        if metadata_schema:
+            for key, field_type in metadata_schema.items():
+                properties[key] = {"type": field_type}
+
+        body = {
+            "settings": {
+                "index": {
+                    "knn": True,
+                }
+            },
+            "mappings": {
+                "properties": properties
+            },
+        }
+
+        self._client.indices.create(index=index_name, body=body)
+
+    def upsert_embeddings(
+        self,
+        index_name: str,
+        embeddings: List[Embedding],
+    ) -> None:
+        for emb in embeddings:
+            doc = {
+                "vector": emb.vector,
+                "content": emb.content,
+            }
+            if emb.metadata:
+                doc.update(emb.metadata)
+
+            self._client.index(
+                index=index_name,
+                id=emb.id,
+                body=doc,
+                refresh=True,
+            )
+
+    def similarity_search(
+        self,
+        index_name: str,
+        query_vector: List[float],
+        top_k: int = 5,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[RetrievalResult]:
+        query: Dict[str, Any] = {
+            "size": top_k,
+            "query": {
+                "knn": {
+                    "vector": {
+                        "vector": query_vector,
+                        "k": top_k,
+                    }
+                }
+            },
+        }
+
+        response = self._client.search(
+            index=index_name,
+            body=query,
+        )
+
+        results: List[RetrievalResult] = []
+
+        for hit in response["hits"]["hits"]:
+            results.append(
+                RetrievalResult(
+                    chunk_id=hit["_id"],
+                    content=hit["_source"].get("content", ""),
+                    score=hit["_score"],
+                )
+            )
+
+        return results
+
+
+# ==================================================
+# In-memory implementation (DEV / TEST)
 # ==================================================
 
 class InMemoryVectorStore(VectorStore):
     """
     Simple in-memory vector store.
-
-    Used for:
-    - Local development
-    - Unit tests
-    - Contract validation
-
-    NOT for production.
     """
 
     def __init__(self) -> None:
@@ -126,8 +188,7 @@ class InMemoryVectorStore(VectorStore):
         dimension: int,
         metadata_schema: Optional[Dict[str, Any]] = None,
     ) -> None:
-        if index_name not in self._indices:
-            self._indices[index_name] = {}
+        self._indices.setdefault(index_name, {})
 
     def upsert_embeddings(
         self,
@@ -150,34 +211,22 @@ class InMemoryVectorStore(VectorStore):
         if index_name not in self._indices:
             raise ValueError(f"Index '{index_name}' does not exist")
 
-        results: List[RetrievalResult] = []
+        scored: List[RetrievalResult] = []
 
         for emb in self._indices[index_name].values():
             score = self._cosine_similarity(query_vector, emb.vector)
-
-            results.append(
+            scored.append(
                 RetrievalResult(
-                    id=emb.id,
-                    score=score,
+                    chunk_id=emb.id,
                     content=emb.content,
-                    metadata=emb.metadata,
+                    score=score,
                 )
             )
 
-        # Sort by similarity score
-        results.sort(key=lambda r: r.score, reverse=True)
+        scored.sort(key=lambda r: r.score, reverse=True)
+        return scored[:top_k]
 
-        return results[:top_k]
-
-    # --------------------------------------------------
-    # Utilities
-    # --------------------------------------------------
-
-    def _cosine_similarity(
-        self,
-        a: List[float],
-        b: List[float],
-    ) -> float:
+    def _cosine_similarity(self, a: List[float], b: List[float]) -> float:
         if len(a) != len(b):
             return 0.0
 
