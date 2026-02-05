@@ -11,7 +11,8 @@ Step 7.4 adds:
 """
 
 from datetime import datetime, timezone
-from typing import List, Set
+from typing import List, Set, Dict
+from uuid import uuid4
 
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
@@ -48,6 +49,37 @@ class ToolExecutionEngine:
         if not hasattr(context, "tool_results"):
             context.tool_results: List[ToolResult] = []  # type: ignore
 
+        if not hasattr(context, "tool_spans"):
+            context.tool_spans: List[Dict] = []  # type: ignore
+
+    def _validate_tool_call(self, tool_call: ToolCall) -> None:
+        if not tool_call.tool_id:
+            raise ValueError("ToolCall must have a tool_id")
+
+    def _build_span(self, tool_call: ToolCall, context: AgentExecutionContext) -> tuple[Dict[str, str], datetime]:
+        started_at = datetime.now(timezone.utc)
+        span = {
+            "tool_call_id": tool_call.call_id or str(uuid4()),
+            "tool_id": tool_call.tool_id,
+            "started_at": started_at.isoformat(),
+            "status": "pending",
+        }
+        return span, started_at
+
+    def _finalize_span(
+        self, span: Dict[str, str], result: ToolResult, started_at: datetime
+    ) -> None:
+        finished_at = datetime.now(timezone.utc)
+        latency_ms = int((finished_at - started_at).total_seconds() * 1000)
+
+        span.update(
+            {
+                "finished_at": finished_at.isoformat(),
+                "latency_ms": latency_ms,
+                "status": "success" if result.success else "error",
+            }
+        )
+
     # --------------------------------------------------
     # Public API
     # --------------------------------------------------
@@ -58,45 +90,22 @@ class ToolExecutionEngine:
         context: AgentExecutionContext,
     ) -> ToolResult:
         """
-        Execute a single ToolCall with full observability.
+        Execute a single ToolCall with full MCP observability.
         """
         self._init_context_state(context)
+        self._validate_tool_call(tool_call)
 
-        # Ensure correlation ID
-        if not tool_call.call_id:
-            tool_call.call_id = f"{tool_call.tool_id}-{datetime.now(timezone.utc).timestamp()}"
-
-        # Prevent duplicate execution
-        if tool_call.call_id in context.executed_tool_call_ids:
-            raise RuntimeError(
-                f"ToolCall '{tool_call.call_id}' already executed in this run"
-            )
-
-        started_at = datetime.now(timezone.utc)
+        span, started_at = self._build_span(tool_call, context)
 
         # Execute tool using ToolExecutor
         result = self._executor.execute(tool_call=tool_call)
 
-        finished_at = datetime.now(timezone.utc)
-        latency_ms = int((finished_at - started_at).total_seconds() * 1000)
+        # Attach MCP metadata
+        result.execution_id = span["tool_call_id"]
 
-        # --------------------------------------------------
-        # Observability metadata
-        # --------------------------------------------------
-        # Ensure metadata exists as a mutable dict
-        if result.metadata is None:
-            result.metadata = {}
-        result.metadata.update(
-            {
-                "run_id": context.run_id,
-                "tool_call_id": tool_call.call_id,
-                "tool_id": tool_call.tool_id,
-                "started_at": started_at.isoformat(),
-                "finished_at": finished_at.isoformat(),
-                "latency_ms": latency_ms,
-                "status": "success" if result.success else "error",
-            }
-        )
+        # Finalize span with result
+        self._finalize_span(span, result, started_at)
+        context.tool_spans.append(span)
 
         # Record execution
         context.executed_tool_call_ids.add(tool_call.call_id)
@@ -111,12 +120,7 @@ class ToolExecutionEngine:
         fail_fast: bool = True,
     ) -> List[ToolResult]:
         """
-        Execute tool calls sequentially with safety and observability.
-
-        Args:
-            tool_calls: List of tool calls to execute
-            context: Execution-scoped context
-            fail_fast: Stop execution on first failure
+        Execute tool calls sequentially with safety and MCP observability.
         """
         self._init_context_state(context)
 

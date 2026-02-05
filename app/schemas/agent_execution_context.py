@@ -11,7 +11,7 @@ Architectural intent:
 """
 
 from datetime import datetime
-from typing import List
+from typing import List, Dict, Any
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -43,5 +43,17 @@ class AgentExecutionContext(BaseModel):
         description="Tool calls declared by agents during execution",
     )
 
-    # Intentionally minimal.
-    # This is a load-bearing abstraction.
+    executed_tool_call_ids: List[str] = Field(
+        default_factory=list,
+        description="Set of tool_call_ids already executed in this run",
+    )
+
+    tool_results: List[Any] = Field(
+        default_factory=list,
+        description="ToolResult objects collected during execution",
+    )
+
+    tool_spans: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Execution trace of tools for observability and MCP protocol",
+    )

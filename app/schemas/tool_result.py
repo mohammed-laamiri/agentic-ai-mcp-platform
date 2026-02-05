@@ -43,3 +43,13 @@ class ToolResult(BaseModel):
         default_factory=dict,
         description="Execution metadata (latency, cost, retries, etc.)",
     )
+
+    execution_id: Optional[str] = Field(
+        default=None,
+        description="Unique execution ID for MCP tracking"
+    )
+
+    retries: int = Field(
+        default=0,
+        description="Number of retries attempted for this tool call"
+    )
