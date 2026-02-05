@@ -9,6 +9,7 @@ Acts as the system conductor:
 """
 
 from typing import Optional
+from uuid import uuid4
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
@@ -26,7 +27,6 @@ from app.services.tool_execution_engine import ToolExecutionEngine
 from app.services.tool_registry import ToolRegistry
 from app.services.memory_writer import MemoryWriter
 from app.services.rag.retrieval_service import RetrievalService
-from app.schemas.rag.embedding import Embedding
 
 
 class Orchestrator:
@@ -40,8 +40,8 @@ class Orchestrator:
         agent_service: AgentService,
         tool_registry: ToolRegistry,
         memory_writer: MemoryWriter,
-        planner_agent: Optional[PlannerAgent] = None,
         retrieval_service: Optional[RetrievalService] = None,
+        planner_agent: Optional[PlannerAgent] = None,
     ) -> None:
         self._task_service = task_service
         self._agent_service = agent_service
@@ -55,17 +55,11 @@ class Orchestrator:
     # ==================================================
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
-        """
-        Run a task using orchestration and persist final result.
-        """
         agent_context = AgentExecutionContext()
 
-        # Inject retrieved chunks into context if retrieval service is provided
-        if self._retrieval_service:
-            # TODO: Replace with actual query embedding logic based on task_in
-            query_embedding = Embedding(vector=[])  # placeholder empty embedding
-            retrieval_result = self._retrieval_service.retrieve(query_embedding=query_embedding)
-            agent_context.retrieved_chunks = retrieval_result.chunks
+        if self._retrieval_service and hasattr(task_in, "embedding"):
+            chunks = self._retrieval_service.retrieve(query_embedding=task_in.embedding)
+            agent_context.add_retrieved_chunks(chunks)
 
         plan = self._plan(agent, task_in, agent_context)
         result = self._execute_plan(agent, task_in, plan, agent_context)
@@ -76,16 +70,11 @@ class Orchestrator:
         )
 
     def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
-        """
-        Execute a task without persistence to TaskService.
-        """
         agent_context = AgentExecutionContext()
 
-        # Inject retrieved chunks into context if retrieval service is provided
-        if self._retrieval_service:
-            query_embedding = Embedding(vector=[])  # placeholder
-            retrieval_result = self._retrieval_service.retrieve(query_embedding=query_embedding)
-            agent_context.retrieved_chunks = retrieval_result.chunks
+        if self._retrieval_service and hasattr(task_in, "embedding"):
+            chunks = self._retrieval_service.retrieve(query_embedding=task_in.embedding)
+            agent_context.add_retrieved_chunks(chunks)
 
         plan = self._plan(agent, task_in, agent_context)
         return self._execute_plan(agent, task_in, plan, agent_context)
@@ -94,31 +83,54 @@ class Orchestrator:
     # Planning
     # ==================================================
 
-    def _plan(
-        self,
-        agent: AgentRead,
-        task_in: TaskCreate,
-        context: AgentExecutionContext,
-    ) -> ExecutionPlan:
-        return self._planner_agent.plan(
-            agent=agent,
-            task=task_in,
-            context=context,
-        )
+    def _plan(self, agent: AgentRead, task_in: TaskCreate, context: AgentExecutionContext) -> ExecutionPlan:
+        return self._planner_agent.plan(agent=agent, task=task_in, context=context)
+
+    # ==================================================
+    # Helpers
+    # ==================================================
+
+    def _build_execution_result(self, raw_result: dict) -> ExecutionResult:
+        """
+        Normalize agent output into ExecutionResult contract.
+        """
+        payload = {
+            "execution_id": raw_result.get("execution_id", str(uuid4())),
+            "output": raw_result.get("output"),
+            "tool_calls": raw_result.get("tool_calls", []),
+        }
+        return ExecutionResult(**payload)
+
+    # ==================================================
+    # Strategy normalization
+    # ==================================================
+
+    def _normalize_strategy(self, strategy) -> ExecutionStrategy:
+        if isinstance(strategy, ExecutionStrategy):
+            return strategy
+
+        if isinstance(strategy, str):
+            strategy_lower = strategy.lower()
+            for member in ExecutionStrategy:
+                if member.value.lower() == strategy_lower:
+                    return member
+
+        raise ValueError(f"Unknown strategy: {strategy}")
 
     # ==================================================
     # Validation
     # ==================================================
 
     def _validate_plan(self, plan: ExecutionPlan) -> None:
-        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+        strategy = self._normalize_strategy(plan.strategy)
+
+        if strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
-        elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
+
+        elif strategy == ExecutionStrategy.MULTI_AGENT:
             if not plan.steps or len(plan.steps) < 2:
                 raise ValueError("MULTI_AGENT requires at least two agents")
-        else:
-            raise ValueError(f"Unknown strategy: {plan.strategy}")
 
     # ==================================================
     # Execution Dispatcher
@@ -131,16 +143,16 @@ class Orchestrator:
         plan: ExecutionPlan,
         agent_context: AgentExecutionContext,
     ) -> ExecutionResult:
+        strategy = self._normalize_strategy(plan.strategy)
         self._validate_plan(plan)
 
-        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+        if strategy == ExecutionStrategy.SINGLE_AGENT:
             result = self._execute_single_agent(agent, task_in, agent_context)
-        elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
+        elif strategy == ExecutionStrategy.MULTI_AGENT:
             result = self._execute_multi_agent_sequential(task_in, plan, agent_context)
         else:
-            raise ValueError(f"Unsupported strategy: {plan.strategy}")
+            raise ValueError(f"Unsupported strategy: {strategy}")
 
-        # Execute declared tool calls AFTER agent reasoning
         if agent_context.tool_calls:
             self._tool_engine.execute_batch(
                 tool_calls=agent_context.tool_calls,
@@ -148,7 +160,6 @@ class Orchestrator:
                 fail_fast=True,
             )
 
-        # Persist final execution memory
         session_context = ExecutionContext(
             task_id=getattr(task_in, "id", "unknown-task"),
             user_input=task_in.description,
@@ -167,45 +178,39 @@ class Orchestrator:
     # ==================================================
 
     def _execute_single_agent(
-        self,
-        agent: AgentRead,
-        task_in: TaskCreate,
-        context: AgentExecutionContext,
+        self, agent: AgentRead, task_in: TaskCreate, context: AgentExecutionContext
     ) -> ExecutionResult:
         raw_result = self._agent_service.execute(agent, task_in, context)
 
         for call in raw_result.get("tool_calls", []):
             context.tool_calls.append(ToolCall(**call))
 
-        # Persist memory for single-agent step
+        result = self._build_execution_result(raw_result)
+
         session_context = ExecutionContext(
             task_id=getattr(task_in, "id", "unknown-task"),
             user_input=task_in.description,
         )
+
         self._memory_writer.write(
-            execution_result=ExecutionResult(**raw_result),
+            execution_result=result,
             agent_context=context,
             session_context=session_context,
         )
 
-        return ExecutionResult(**raw_result)
+        return result
 
     def _execute_multi_agent_sequential(
-        self,
-        task_in: TaskCreate,
-        plan: ExecutionPlan,
-        context: AgentExecutionContext,
+        self, task_in: TaskCreate, plan: ExecutionPlan, context: AgentExecutionContext
     ) -> ExecutionResult:
-        """
-        Execute a multi-agent plan sequentially, persisting each step.
-        """
         current_input = task_in.description
         final_result: Optional[ExecutionResult] = None
 
         for agent in plan.steps:
             intermediate_task = TaskCreate(
                 description=current_input,
-                input=current_input,
+                input={"text": current_input},
+                embedding=getattr(task_in, "embedding", None),
             )
 
             raw_result = self._agent_service.execute(agent, intermediate_task, context)
@@ -213,15 +218,15 @@ class Orchestrator:
             for call in raw_result.get("tool_calls", []):
                 context.tool_calls.append(ToolCall(**call))
 
-            step_result = ExecutionResult(**raw_result)
+            step_result = self._build_execution_result(raw_result)
             final_result = step_result
             current_input = step_result.output or ""
 
-            # Persist each step to MemoryWriter
             session_context = ExecutionContext(
                 task_id=getattr(task_in, "id", "unknown-task"),
                 user_input=intermediate_task.description,
             )
+
             self._memory_writer.write(
                 execution_result=step_result,
                 agent_context=context,

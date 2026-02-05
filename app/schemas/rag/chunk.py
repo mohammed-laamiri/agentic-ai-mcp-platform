@@ -1,14 +1,4 @@
-"""
-Chunk schema.
-
-Represents a semantically meaningful piece of a document
-produced during the chunking phase of RAG ingestion.
-
-Chunks are:
-- Stored in the vector store
-- Retrieved during query-time
-- Passed to agents as context
-"""
+# app/schemas/rag/chunk.py
 
 from typing import Dict, Optional
 from pydantic import BaseModel, Field
@@ -16,30 +6,14 @@ from pydantic import BaseModel, Field
 
 class Chunk(BaseModel):
     """
-    A single retrievable chunk of text.
+    Represents a chunk of text retrieved from a document,
+    used for RAG (Retrieval-Augmented Generation) workflows.
     """
 
-    chunk_id: str = Field(
-        ...,
-        description="Unique identifier for the chunk",
-    )
-
-    document_id: str = Field(
-        ...,
-        description="Identifier of the source document",
-    )
-
-    text: str = Field(
-        ...,
-        description="Chunk textual content",
-    )
-
-    metadata: Dict[str, str] = Field(
+    chunk_id: str = Field(..., description="Unique identifier for the chunk")
+    document_id: str = Field(..., description="Identifier of the source document")
+    text: str = Field(..., description="The textual content of the chunk")
+    metadata: Optional[Dict] = Field(
         default_factory=dict,
-        description="Additional metadata (page, section, tags, etc.)",
-    )
-
-    score: Optional[float] = Field(
-        default=None,
-        description="Similarity score (set at retrieval time)",
+        description="Optional metadata associated with the chunk"
     )

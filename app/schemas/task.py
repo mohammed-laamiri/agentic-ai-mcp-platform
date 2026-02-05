@@ -25,6 +25,10 @@ class TaskCreate(BaseModel):
         default=None,
         description="Optional execution input payload",
     )
+    embedding: Optional[list[float]] = Field(
+        default=None,
+        description="Optional precomputed embedding for retrieval",
+    )
 
 
 class TaskRead(BaseModel):
@@ -37,4 +41,5 @@ class TaskRead(BaseModel):
     status: TaskStatus
     result: Optional[Union[Dict, str]] = None
     input: Optional[Dict] = None
+    embedding: Optional[list[float]] = None
     created_at: Optional[datetime] = None

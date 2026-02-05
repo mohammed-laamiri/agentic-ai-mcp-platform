@@ -3,7 +3,7 @@ Retrieval Service.
 
 Responsible for:
 - Querying the VectorStore
-- Returning relevant chunks for a user query
+- Returning relevant results for a query embedding
 - Acting as the read-path of the RAG pipeline
 
 Architectural role:
@@ -11,19 +11,12 @@ Architectural role:
 - Pure retrieval (no LLM calls)
 - Orchestrator-agnostic
 - Embedding-agnostic (expects pre-embedded query)
-
-Future enhancements:
-- Hybrid search (keyword + vector)
-- Metadata filtering
-- Re-ranking
-- Multi-index routing
 """
 
 from typing import List
 
 from app.services.rag.vector_store import VectorStore
 from app.schemas.rag.retrieval import RetrievalResult
-from app.schemas.rag.chunk import Chunk
 from app.schemas.rag.embedding import Embedding
 
 
@@ -35,9 +28,11 @@ class RetrievalService:
     def __init__(
         self,
         vector_store: VectorStore,
+        index_name: str,
         top_k: int = 5,
     ) -> None:
         self._vector_store = vector_store
+        self._index_name = index_name
         self._top_k = top_k
 
     # --------------------------------------------------
@@ -47,24 +42,18 @@ class RetrievalService:
     def retrieve(
         self,
         query_embedding: Embedding,
-    ) -> RetrievalResult:
+    ) -> List[RetrievalResult]:
         """
-        Retrieve relevant chunks for a query embedding.
+        Retrieve relevant results for a query embedding.
 
         Args:
             query_embedding: Embedded representation of the user query
 
         Returns:
-            RetrievalResult containing ranked chunks
+            Ranked list of RetrievalResult
         """
-        matches = self._vector_store.search(
-            embedding=query_embedding.vector,
+        return self._vector_store.similarity_search(
+            index_name=self._index_name,
+            query_vector=query_embedding.vector,
             top_k=self._top_k,
-        )
-
-        chunks: List[Chunk] = [match.chunk for match in matches]
-
-        return RetrievalResult(
-            chunks=chunks,
-            total=len(chunks),
         )
