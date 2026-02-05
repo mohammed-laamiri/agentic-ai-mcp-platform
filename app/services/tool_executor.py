@@ -9,12 +9,12 @@ Architectural role:
 - Isolated from orchestration and planning
 - Fetches metadata from ToolRegistry
 
-This will later support:
-- Timeouts
-- Retries
-- Sandboxing
-- Cost tracking
-- Observability hooks
+MCP upgrades:
+- Uniform ToolResult normalization
+- Execution ID attachment
+- Retry counter integration
+- Structured metadata
+- Exception standardization
 """
 
 from datetime import datetime, timezone
@@ -38,10 +38,15 @@ class ToolExecutor:
     def __init__(self, tool_registry: ToolRegistry) -> None:
         self._tool_registry = tool_registry
 
+    # -----------------------------
+    # Public API
+    # -----------------------------
+
     def execute(
         self,
         tool_call: ToolCall,
         tool_fn: Optional[Callable[..., Any]] = None,
+        retries: int = 0,
     ) -> ToolResult:
         """
         Execute a tool function or a registered tool by ID.
@@ -50,9 +55,10 @@ class ToolExecutor:
             tool_call: Structured tool invocation request
             tool_fn: Optional Python callable implementing the tool
                      If None, tool will be fetched from ToolRegistry
+            retries: Number of retries attempted
 
         Returns:
-            ToolResult: Structured execution result
+            ToolResult: Structured MCP-compliant execution result
         """
 
         start_time = datetime.now(timezone.utc)
@@ -61,40 +67,51 @@ class ToolExecutor:
         tool_meta: Optional[ToolMetadata] = self._tool_registry.get_tool(tool_call.tool_id)
         if tool_meta is None:
             return ToolResult(
-                tool_call_id=tool_call.tool_call_id,
+                tool_call_id=tool_call.call_id,
                 tool_id=tool_call.tool_id,
-                status="error",
+                success=False,
                 output=None,
                 error=f"Tool '{tool_call.tool_id}' not registered",
-                started_at=start_time,
-                finished_at=datetime.now(timezone.utc),
+                metadata={},
+                execution_id=tool_call.call_id or str(uuid4()),
+                retries=retries,
             )
 
         # Determine callable
         if tool_fn is None:
-            # For now, we assume stub execution (to be replaced later)
+            # Default stub execution (to be replaced with real tool logic)
             def tool_fn_stub(**kwargs: Any) -> str:
                 return f"[STUB TOOL OUTPUT] Tool '{tool_meta.name}' executed with input: {kwargs}"
             tool_fn = tool_fn_stub
 
+        # Execute safely
         try:
             output = tool_fn(**tool_call.arguments)
-            status = "success"
+            success = True
             error = None
 
         except Exception as exc:  # noqa: BLE001
             output = None
-            status = "error"
+            success = False
             error = str(exc)
 
         finished_time = datetime.now(timezone.utc)
 
+        # Build metadata
+        metadata = {
+            "tool_name": getattr(tool_meta, "name", None),
+            "version": getattr(tool_meta, "version", None),
+            "started_at": start_time.isoformat(),
+            "finished_at": finished_time.isoformat(),
+        }
+
         return ToolResult(
-            tool_call_id=tool_call.tool_call_id,
+            tool_call_id=tool_call.call_id,
             tool_id=tool_call.tool_id,
-            status=status,
+            success=success,
             output=output,
             error=error,
-            started_at=start_time,
-            finished_at=finished_time,
+            metadata=metadata,
+            execution_id=tool_call.call_id or str(uuid4()),
+            retries=retries,
         )
