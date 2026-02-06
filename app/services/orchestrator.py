@@ -9,6 +9,8 @@ Acts as the system conductor:
 - Integrates MCP-compliant tool execution
 """
 
+from typing import Optional
+
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
 from app.schemas.execution import ExecutionResult
@@ -37,7 +39,7 @@ class OrchestratorService:
         agent_service: AgentService,
         tool_registry: ToolRegistry,
         memory_writer: MemoryWriter,
-        planner_agent: PlannerAgent | None = None,
+        planner_agent: Optional[PlannerAgent] = None,
     ) -> None:
         self._task_service = task_service
         self._agent_service = agent_service
@@ -113,36 +115,50 @@ class OrchestratorService:
     ) -> ExecutionResult:
         self._validate_plan(plan)
 
-        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
-            result = self._execute_single_agent(agent, task_in, context)
-        elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
-            result = self._execute_multi_agent_sequential(task_in, plan, context)
-        else:
-            raise ValueError(f"Unsupported strategy: {plan.strategy}")
+        try:
+            # -----------------------------
+            # Agent execution phase
+            # -----------------------------
+            if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+                result = self._execute_single_agent(agent, task_in, context)
+            elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
+                result = self._execute_multi_agent_sequential(task_in, plan, context)
+            else:
+                raise ValueError(f"Unsupported strategy: {plan.strategy}")
 
-        # -----------------------------
-        # Execute declared tool calls
-        # -----------------------------
-        if context.tool_calls:
-            self._tool_engine.execute_batch(
-                tool_calls=context.tool_calls,
-                context=context,
-                fail_fast=True,
+            # -----------------------------
+            # Tool execution phase (MCP)
+            # -----------------------------
+            if context.tool_calls:
+                self._tool_engine.execute_batch(
+                    tool_calls=context.tool_calls,
+                    context=context,
+                    fail_fast=True,
+                )
+
+            # -----------------------------
+            # Persist execution with MemoryWriter
+            # -----------------------------
+            exec_context = ExecutionContext(
+                session_id="session-placeholder",
+                user_id=None,
+                strategy=plan.strategy,
+                metadata={
+                    "task_id": getattr(task_in, "id", None),
+                    "run_id": context.run_id,
+                    "status": context.status,
+                },
+                tool_registry=None,
             )
 
-        # -----------------------------
-        # Persist execution with MemoryWriter
-        # -----------------------------
-        exec_context = ExecutionContext(
-            session_id="session-placeholder",
-            user_id=None,
-            strategy=plan.strategy,
-            metadata={"task_id": getattr(task_in, "id", None)},
-            tool_registry=None,
-        )
-        self._memory_writer.write_execution(exec_context, result)
+            self._memory_writer.write_execution(exec_context, result)
 
-        return result
+            context.mark_completed("completed")
+            return result
+
+        except Exception as exc:
+            context.mark_completed("failed")
+            raise exc
 
     # ==================================================
     # Execution Strategies
@@ -157,7 +173,8 @@ class OrchestratorService:
         raw_result = self._agent_service.execute(agent, task_in, context)
 
         tool_calls = raw_result.get("tool_calls", [])
-        context.tool_calls.extend(ToolCall(**call) for call in tool_calls)
+        for call in tool_calls:
+            context.add_tool_call(ToolCall(**call))
 
         return ExecutionResult(**raw_result)
 
@@ -168,7 +185,7 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> ExecutionResult:
         current_input = task_in.description
-        final_result: ExecutionResult | None = None
+        final_result: Optional[ExecutionResult] = None
 
         for agent in plan.steps:
             intermediate_task = TaskCreate(
@@ -179,7 +196,8 @@ class OrchestratorService:
             raw_result = self._agent_service.execute(agent, intermediate_task, context)
 
             tool_calls = raw_result.get("tool_calls", [])
-            context.tool_calls.extend(ToolCall(**call) for call in tool_calls)
+            for call in tool_calls:
+                context.add_tool_call(ToolCall(**call))
 
             final_result = ExecutionResult(**raw_result)
             current_input = final_result.output or ""

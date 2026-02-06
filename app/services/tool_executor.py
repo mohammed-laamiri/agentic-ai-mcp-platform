@@ -55,13 +55,18 @@ class ToolExecutor:
             tool_call: Structured tool invocation request
             tool_fn: Optional Python callable implementing the tool
                      If None, tool will be fetched from ToolRegistry
-            retries: Number of retries attempted
+            retries: Number of retry attempts
 
         Returns:
             ToolResult: Structured MCP-compliant execution result
         """
 
-        start_time = datetime.now(timezone.utc)
+        # Ensure correlation id
+        if not tool_call.call_id:
+            tool_call.call_id = str(uuid4())
+
+        execution_id = tool_call.call_id
+        started_at = datetime.now(timezone.utc)
 
         # Fetch tool metadata
         tool_meta: Optional[ToolMetadata] = self._tool_registry.get_tool(tool_call.tool_id)
@@ -72,46 +77,67 @@ class ToolExecutor:
                 success=False,
                 output=None,
                 error=f"Tool '{tool_call.tool_id}' not registered",
-                metadata={},
-                execution_id=tool_call.call_id or str(uuid4()),
-                retries=retries,
+                metadata={
+                    "execution_id": execution_id,
+                    "started_at": started_at.isoformat(),
+                    "status": "error",
+                },
             )
 
         # Determine callable
         if tool_fn is None:
-            # Default stub execution (to be replaced with real tool logic)
             def tool_fn_stub(**kwargs: Any) -> str:
                 return f"[STUB TOOL OUTPUT] Tool '{tool_meta.name}' executed with input: {kwargs}"
+
             tool_fn = tool_fn_stub
 
-        # Execute safely
-        try:
-            output = tool_fn(**tool_call.arguments)
-            success = True
-            error = None
+        last_error: Optional[str] = None
 
-        except Exception as exc:  # noqa: BLE001
-            output = None
-            success = False
-            error = str(exc)
+        for attempt in range(retries + 1):
+            try:
+                output = tool_fn(**tool_call.arguments)
+                finished_at = datetime.now(timezone.utc)
 
-        finished_time = datetime.now(timezone.utc)
+                latency_ms = int((finished_at - started_at).total_seconds() * 1000)
 
-        # Build metadata
-        metadata = {
-            "tool_name": getattr(tool_meta, "name", None),
-            "version": getattr(tool_meta, "version", None),
-            "started_at": start_time.isoformat(),
-            "finished_at": finished_time.isoformat(),
-        }
+                return ToolResult(
+                    tool_call_id=tool_call.call_id,
+                    tool_id=tool_call.tool_id,
+                    success=True,
+                    output=output,
+                    error=None,
+                    metadata={
+                        "execution_id": execution_id,
+                        "tool_name": getattr(tool_meta, "name", None),
+                        "version": getattr(tool_meta, "version", None),
+                        "attempt": attempt + 1,
+                        "latency_ms": latency_ms,
+                        "started_at": started_at.isoformat(),
+                        "finished_at": finished_at.isoformat(),
+                        "status": "success",
+                    },
+                )
+
+            except Exception as exc:  # noqa: BLE001
+                last_error = str(exc)
+
+        finished_at = datetime.now(timezone.utc)
+        latency_ms = int((finished_at - started_at).total_seconds() * 1000)
 
         return ToolResult(
             tool_call_id=tool_call.call_id,
             tool_id=tool_call.tool_id,
-            success=success,
-            output=output,
-            error=error,
-            metadata=metadata,
-            execution_id=tool_call.call_id or str(uuid4()),
-            retries=retries,
+            success=False,
+            output=None,
+            error=last_error,
+            metadata={
+                "execution_id": execution_id,
+                "tool_name": getattr(tool_meta, "name", None),
+                "version": getattr(tool_meta, "version", None),
+                "attempt": retries + 1,
+                "latency_ms": latency_ms,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "status": "error",
+            },
         )

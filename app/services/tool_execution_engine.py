@@ -16,7 +16,8 @@ IMPORTANT:
 """
 
 import time
-from typing import Callable, Dict, List
+from datetime import datetime, timezone
+from typing import Callable, Dict, List, Set
 
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
@@ -46,6 +47,20 @@ class ToolExecutionEngine:
         self._executors[tool_id] = handler
 
     # ==================================================
+    # Internal helpers
+    # ==================================================
+
+    def _init_context_state(self, context: AgentExecutionContext) -> None:
+        """
+        Initialize ephemeral execution state on context safely.
+        """
+        if not hasattr(context, "tool_results"):
+            context.tool_results: List[ToolResult] = []  # type: ignore
+
+        if not hasattr(context, "executed_tool_call_ids"):
+            context.executed_tool_call_ids: Set[str] = set()  # type: ignore
+
+    # ==================================================
     # Execution
     # ==================================================
 
@@ -66,10 +81,12 @@ class ToolExecutionEngine:
         retries:
         - number of retry attempts per tool
         """
+        self._init_context_state(context)
+
         results: List[ToolResult] = []
 
         for call in tool_calls:
-            result = self._execute_single(call, retries=retries)
+            result = self._execute_single(call, context=context, retries=retries)
             results.append(result)
             context.tool_results.append(result)
 
@@ -78,18 +95,40 @@ class ToolExecutionEngine:
 
         return results
 
-    def _execute_single(self, call: ToolCall, retries: int) -> ToolResult:
+    def _execute_single(
+        self,
+        call: ToolCall,
+        context: AgentExecutionContext,
+        retries: int,
+    ) -> ToolResult:
         """
-        Execute a single tool call with retry support.
+        Execute a single tool call with retry support and observability.
         """
-        start = time.time()
+        # Ensure correlation id
+        if not call.call_id:
+            call.call_id = f"{call.tool_id}-{time.time()}"
+
+        # Prevent duplicate execution inside one run
+        if call.call_id in context.executed_tool_call_ids:
+            return ToolResult(
+                tool_id=call.tool_id,
+                success=False,
+                error=f"ToolCall '{call.call_id}' already executed",
+                metadata={"duplicate": True},
+            )
+
+        started_at = datetime.now(timezone.utc)
+        start_ts = time.time()
 
         if not self._tool_registry.has_tool(call.tool_id):
             return ToolResult(
                 tool_id=call.tool_id,
                 success=False,
                 error="Tool not registered",
-                metadata={},
+                metadata={
+                    "tool_call_id": call.call_id,
+                    "run_id": context.run_id,
+                },
             )
 
         if call.tool_id not in self._executors:
@@ -97,39 +136,59 @@ class ToolExecutionEngine:
                 tool_id=call.tool_id,
                 success=False,
                 error="No executor bound for tool",
-                metadata={},
+                metadata={
+                    "tool_call_id": call.call_id,
+                    "run_id": context.run_id,
+                },
             )
 
         handler = self._executors[call.tool_id]
-
         last_error: str | None = None
 
         for attempt in range(retries + 1):
             try:
                 output = handler(**call.arguments)
-                latency = time.time() - start
+                latency = time.time() - start_ts
+                finished_at = datetime.now(timezone.utc)
 
-                return ToolResult(
+                result = ToolResult(
                     tool_id=call.tool_id,
                     success=True,
                     output=output,
                     metadata={
-                        "latency": latency,
+                        "tool_call_id": call.call_id,
+                        "run_id": context.run_id,
                         "attempt": attempt + 1,
+                        "latency": latency,
+                        "started_at": started_at.isoformat(),
+                        "finished_at": finished_at.isoformat(),
+                        "status": "success",
                     },
                 )
 
-            except Exception as e:
+                context.executed_tool_call_ids.add(call.call_id)
+                return result
+
+            except Exception as e:  # noqa: BLE001
                 last_error = str(e)
 
-        latency = time.time() - start
+        latency = time.time() - start_ts
+        finished_at = datetime.now(timezone.utc)
 
-        return ToolResult(
+        result = ToolResult(
             tool_id=call.tool_id,
             success=False,
             error=last_error,
             metadata={
-                "latency": latency,
+                "tool_call_id": call.call_id,
+                "run_id": context.run_id,
                 "attempt": retries + 1,
+                "latency": latency,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "status": "error",
             },
         )
+
+        context.executed_tool_call_ids.add(call.call_id)
+        return result
