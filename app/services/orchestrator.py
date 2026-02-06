@@ -5,7 +5,8 @@ Coordinates high-level workflows without owning business logic.
 
 Acts as the system conductor:
 - Knows WHAT happens next
-- Does NOT know HOW things are implemented
+- Delegates HOW things are executed
+- Integrates MCP-compliant tool execution
 """
 
 from app.schemas.agent import AgentRead
@@ -15,6 +16,7 @@ from app.schemas.execution_plan import ExecutionPlan
 from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.tool_call import ToolCall
+from app.schemas.execution_context import ExecutionContext
 
 from app.services.agent_service import AgentService
 from app.services.task_service import TaskService
@@ -22,7 +24,6 @@ from app.services.planner_agent import PlannerAgent
 from app.services.tool_execution_engine import ToolExecutionEngine
 from app.services.tool_registry import ToolRegistry
 from app.services.memory_writer import MemoryWriter
-from app.schemas.execution_context import ExecutionContext
 
 
 class OrchestratorService:
@@ -35,14 +36,14 @@ class OrchestratorService:
         task_service: TaskService,
         agent_service: AgentService,
         tool_registry: ToolRegistry,
-        memory_writer: MemoryWriter,  # <--- inject memory writer
+        memory_writer: MemoryWriter,
         planner_agent: PlannerAgent | None = None,
     ) -> None:
         self._task_service = task_service
         self._agent_service = agent_service
         self._planner_agent = planner_agent or PlannerAgent()
         self._tool_engine = ToolExecutionEngine(tool_registry=tool_registry)
-        self._memory_writer = memory_writer  # <--- save reference
+        self._memory_writer = memory_writer
 
     # ==================================================
     # Public API
@@ -50,10 +51,9 @@ class OrchestratorService:
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
-        Run a task using orchestration and persist result.
+        Execute a task and persist result.
         """
         context = AgentExecutionContext()
-
         plan = self._plan(agent, task_in, context)
         result = self._execute_plan(agent, task_in, plan, context)
 
@@ -67,7 +67,6 @@ class OrchestratorService:
         Execute a task without persistence.
         """
         context = AgentExecutionContext()
-
         plan = self._plan(agent, task_in, context)
         return self._execute_plan(agent, task_in, plan, context)
 
@@ -88,18 +87,16 @@ class OrchestratorService:
         )
 
     # ==================================================
-    # Validation
+    # Plan Validation
     # ==================================================
 
     def _validate_plan(self, plan: ExecutionPlan) -> None:
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
-
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             if not plan.steps or len(plan.steps) < 2:
                 raise ValueError("MULTI_AGENT requires at least two agents")
-
         else:
             raise ValueError(f"Unknown strategy: {plan.strategy}")
 
@@ -118,14 +115,14 @@ class OrchestratorService:
 
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             result = self._execute_single_agent(agent, task_in, context)
-
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             result = self._execute_multi_agent_sequential(task_in, plan, context)
-
         else:
             raise ValueError(f"Unsupported strategy: {plan.strategy}")
 
-        # 🔧 Execute declared tool calls AFTER agent reasoning
+        # -----------------------------
+        # Execute declared tool calls
+        # -----------------------------
         if context.tool_calls:
             self._tool_engine.execute_batch(
                 tool_calls=context.tool_calls,
@@ -133,18 +130,19 @@ class OrchestratorService:
                 fail_fast=True,
             )
 
-        # 🔧 Persist execution to Memory Writer
+        # -----------------------------
+        # Persist execution with MemoryWriter
+        # -----------------------------
         exec_context = ExecutionContext(
-            session_id="session-placeholder",  # populate from your session/user system
-            user_id=None,                      # optional
+            session_id="session-placeholder",
+            user_id=None,
             strategy=plan.strategy,
             metadata={"task_id": getattr(task_in, "id", None)},
-            tool_registry=None,                # optional reference if needed
+            tool_registry=None,
         )
         self._memory_writer.write_execution(exec_context, result)
 
         return result
-
 
     # ==================================================
     # Execution Strategies
@@ -178,11 +176,7 @@ class OrchestratorService:
                 input=current_input,
             )
 
-            raw_result = self._agent_service.execute(
-                agent,
-                intermediate_task,
-                context,
-            )
+            raw_result = self._agent_service.execute(agent, intermediate_task, context)
 
             tool_calls = raw_result.get("tool_calls", [])
             context.tool_calls.extend(ToolCall(**call) for call in tool_calls)
