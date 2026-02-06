@@ -1,111 +1,53 @@
 """
 Tool Execution Engine.
 
-Coordinates execution of tools in a controlled, safe, and observable manner.
+Responsible for executing tools declared via ToolCall.
 
-MCP-ready:
-- Uses ToolExecutor with structured execution envelope
-- Generates execution_id for all runs
-- Tracks execution spans in AgentExecutionContext
-- Attaches structured metadata to ToolResult
+Architectural role:
+- Validates tool existence
+- Dispatches execution
+- Captures MCP-style ToolResult contracts
+- Supports retries and fail-fast semantics
+
+IMPORTANT:
+- Does NOT plan tools
+- Does NOT reason
+- Only executes
 """
 
-from datetime import datetime, timezone
-from typing import List, Set, Dict
-from uuid import uuid4
+import time
+from typing import Callable, Dict, List
 
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.services.tool_registry import ToolRegistry
-from app.services.tool_executor import ToolExecutor
 
 
 class ToolExecutionEngine:
     """
-    Central MCP execution coordinator for tools.
-
-    HARD GUARANTEES:
-    - One tool executes at a time
-    - Same tool_call_id never executes twice
-    - Execution order is deterministic
-    - Every execution is observable
+    Runtime executor for registered tools.
     """
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
-        self._executor = ToolExecutor(tool_registry=tool_registry)
+        self._tool_registry = tool_registry
+        self._executors: Dict[str, Callable[..., object]] = {}
 
-    # -----------------------------
-    # Internal helpers
-    # -----------------------------
+    # ==================================================
+    # Registration
+    # ==================================================
 
-    def _init_context_state(self, context: AgentExecutionContext) -> None:
-        """Initialize ephemeral execution state on context."""
-        if not hasattr(context, "executed_tool_call_ids"):
-            context.executed_tool_call_ids: Set[str] = set()  # type: ignore
-        if not hasattr(context, "tool_results"):
-            context.tool_results: List[ToolResult] = []  # type: ignore
-        if not hasattr(context, "tool_spans"):
-            context.tool_spans: List[Dict] = []  # type: ignore
-
-    def _validate_tool_call(self, tool_call: ToolCall) -> None:
-        if not tool_call.tool_id:
-            raise ValueError("ToolCall must have a tool_id")
-
-    def _build_span(self, tool_call: ToolCall) -> tuple[Dict[str, str], datetime]:
-        """Initialize span before execution."""
-        started_at = datetime.now(timezone.utc)
-        span = {
-            "tool_call_id": tool_call.call_id or str(uuid4()),
-            "tool_id": tool_call.tool_id,
-            "started_at": started_at.isoformat(),
-            "status": "pending",
-        }
-        return span, started_at
-
-    def _finalize_span(self, span: Dict[str, str], result: ToolResult, started_at: datetime) -> None:
-        """Finalize span after execution."""
-        finished_at = datetime.now(timezone.utc)
-        latency_ms = int((finished_at - started_at).total_seconds() * 1000)
-        span.update(
-            {
-                "finished_at": finished_at.isoformat(),
-                "latency_ms": latency_ms,
-                "status": "success" if result.success else "error",
-            }
-        )
-
-    # -----------------------------
-    # Public API
-    # -----------------------------
-
-    def execute_tool_call(
-        self,
-        tool_call: ToolCall,
-        context: AgentExecutionContext,
-        retries: int = 0,
-    ) -> ToolResult:
+    def register_executor(self, tool_id: str, handler: Callable[..., object]) -> None:
         """
-        Execute a single ToolCall with full MCP observability.
+        Register a callable executor for a tool.
+
+        handler(**kwargs) -> Any
         """
-        self._init_context_state(context)
-        self._validate_tool_call(tool_call)
+        self._executors[tool_id] = handler
 
-        span, started_at = self._build_span(tool_call)
-
-        # Execute tool using ToolExecutor
-        result = self._executor.execute(tool_call=tool_call, retries=retries)
-        result.execution_id = span["tool_call_id"]
-
-        # Finalize span
-        self._finalize_span(span, result, started_at)
-        context.tool_spans.append(span)
-
-        # Record execution
-        context.executed_tool_call_ids.add(tool_call.call_id)
-        context.tool_results.append(result)
-
-        return result
+    # ==================================================
+    # Execution
+    # ==================================================
 
     def execute_batch(
         self,
@@ -115,21 +57,79 @@ class ToolExecutionEngine:
         retries: int = 0,
     ) -> List[ToolResult]:
         """
-        Execute multiple tool calls sequentially with MCP observability.
+        Execute a batch of tool calls.
 
-        Args:
-            tool_calls: List of tool calls to execute
-            context: Execution-scoped context
-            fail_fast: Stop execution on first failure
-            retries: Number of retries attempted
+        fail_fast:
+        - True  -> stop on first failure
+        - False -> continue execution
+
+        retries:
+        - number of retry attempts per tool
         """
-        self._init_context_state(context)
         results: List[ToolResult] = []
 
-        for tool_call in tool_calls:
-            result = self.execute_tool_call(tool_call, context, retries=retries)
+        for call in tool_calls:
+            result = self._execute_single(call, retries=retries)
             results.append(result)
+            context.tool_results.append(result)
+
             if fail_fast and not result.success:
                 break
 
         return results
+
+    def _execute_single(self, call: ToolCall, retries: int) -> ToolResult:
+        """
+        Execute a single tool call with retry support.
+        """
+        start = time.time()
+
+        if not self._tool_registry.has_tool(call.tool_id):
+            return ToolResult(
+                tool_id=call.tool_id,
+                success=False,
+                error="Tool not registered",
+                metadata={},
+            )
+
+        if call.tool_id not in self._executors:
+            return ToolResult(
+                tool_id=call.tool_id,
+                success=False,
+                error="No executor bound for tool",
+                metadata={},
+            )
+
+        handler = self._executors[call.tool_id]
+
+        last_error: str | None = None
+
+        for attempt in range(retries + 1):
+            try:
+                output = handler(**call.arguments)
+                latency = time.time() - start
+
+                return ToolResult(
+                    tool_id=call.tool_id,
+                    success=True,
+                    output=output,
+                    metadata={
+                        "latency": latency,
+                        "attempt": attempt + 1,
+                    },
+                )
+
+            except Exception as e:
+                last_error = str(e)
+
+        latency = time.time() - start
+
+        return ToolResult(
+            tool_id=call.tool_id,
+            success=False,
+            error=last_error,
+            metadata={
+                "latency": latency,
+                "attempt": retries + 1,
+            },
+        )

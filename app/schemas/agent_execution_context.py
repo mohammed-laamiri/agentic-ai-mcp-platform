@@ -7,16 +7,17 @@ a single orchestrator run.
 Architectural intent:
 - Created by the Orchestrator
 - Read-only for agents
-- Collects execution metadata
+- Collects execution metadata and tool spans
 """
 
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
 from app.schemas.tool_call import ToolCall
+from app.schemas.tool_result import ToolResult
 
 
 class AgentExecutionContext(BaseModel):
@@ -43,17 +44,7 @@ class AgentExecutionContext(BaseModel):
         description="Tool calls declared by agents during execution",
     )
 
-    executed_tool_call_ids: List[str] = Field(
+    tool_results: List[ToolResult] = Field(
         default_factory=list,
-        description="Set of tool_call_ids already executed in this run",
-    )
-
-    tool_results: List[Any] = Field(
-        default_factory=list,
-        description="ToolResult objects collected during execution",
-    )
-
-    tool_spans: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="Execution trace of tools for observability and MCP protocol",
+        description="Results produced by tool execution engine",
     )
