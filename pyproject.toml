@@ -6,6 +6,9 @@ requires-python = ">=3.12"
 
 dependencies = [
     "fastapi",
+    "opensearch-py>=3.1.0",
+    "pydantic>=2.12.5",
+    "pytest>=9.0.2",
     "uvicorn",
 ]
 

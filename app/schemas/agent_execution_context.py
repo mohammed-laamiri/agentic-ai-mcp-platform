@@ -14,9 +14,10 @@ from datetime import datetime
 from typing import List
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from app.schemas.tool_call import ToolCall
+from app.schemas.rag.chunk import Chunk
 
 
 class AgentExecutionContext(BaseModel):
@@ -43,5 +44,32 @@ class AgentExecutionContext(BaseModel):
         description="Tool calls declared by agents during execution",
     )
 
-    # Intentionally minimal.
-    # This is a load-bearing abstraction.
+    # ==================================================
+    # Private runtime attributes
+    # ==================================================
+
+    _retrieved_chunks: List[Chunk] = PrivateAttr(default_factory=list)
+
+    # ==================================================
+    # Public accessors
+    # ==================================================
+
+    @property
+    def retrieved_chunks(self) -> List[Chunk]:
+        """
+        Access the chunks retrieved via RAG for this execution.
+        Agents should treat this as read-only.
+        """
+        return self._retrieved_chunks
+
+    def add_retrieved_chunks(self, chunks: List[Chunk]) -> None:
+        """
+        Add RAG-retrieved chunks to this execution context.
+        """
+        self._retrieved_chunks.extend(chunks)
+
+    def clear_retrieved_chunks(self) -> None:
+        """
+        Clear retrieved chunks. Useful for retries or new queries.
+        """
+        self._retrieved_chunks.clear()

@@ -4,17 +4,21 @@ Unit tests for OrchestratorService.
 Uses real services (no mocks yet).
 """
 
-from app.services.orchestrator import OrchestratorService
+from app.services.orchestrator import Orchestrator
 from app.services.agent_service import AgentService
 from app.services.task_service import TaskService
+from app.services.tool_registry import ToolRegistry
+from app.services.memory_writer import MemoryWriter
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
 
 
 def test_orchestrator_run_happy_path():
-    orchestrator = OrchestratorService(
+    orchestrator = Orchestrator(
         task_service=TaskService(),
         agent_service=AgentService(),
+        tool_registry=ToolRegistry(),
+        memory_writer=MemoryWriter(),
     )
 
     agent = AgentRead(id="agent-1", name="TestAgent")
