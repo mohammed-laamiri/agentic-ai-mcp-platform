@@ -1,5 +1,15 @@
 # app/api/routers/task_router.py
 
+"""
+Task Router
+
+Handles all task-related API endpoints:
+- Run tasks via agents
+- List persisted tasks
+- Retrieve tasks by ID
+- Router health check
+"""
+
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -13,6 +23,9 @@ from app.api.deps import get_orchestrator, get_task_service
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
 
+# ==================================================
+# Task Execution Endpoint
+# ==================================================
 @router.post("/run", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
 def run_task(
     task_in: TaskCreate,
@@ -22,12 +35,12 @@ def run_task(
     """
     Run a task using a selected agent.
 
-    Orchestrates the full execution including:
+    Orchestrates the full execution:
+    - Single or multi-agent planning
     - Agent execution
-    - Multi-agent planning
     - Tool calls (MCP)
     - Memory persistence
-    - Task persistence
+    - Task persistence via TaskService
     """
     try:
         return orchestrator.run(agent=agent, task_in=task_in)
@@ -37,6 +50,9 @@ def run_task(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ==================================================
+# List All Tasks
+# ==================================================
 @router.get("/", response_model=List[TaskRead])
 def list_tasks(
     task_service: TaskService = Depends(get_task_service),
@@ -47,19 +63,21 @@ def list_tasks(
     Uses TaskService as the source of truth.
     """
     try:
-        # Ensure your TaskService has a list_tasks() method
         return task_service.list_tasks()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# ==================================================
+# Retrieve Single Task
+# ==================================================
 @router.get("/{task_id}", response_model=TaskRead)
 def get_task(
     task_id: str,
     task_service: TaskService = Depends(get_task_service),
 ) -> TaskRead:
     """
-    Retrieve a task by ID.
+    Retrieve a task by its unique ID.
     """
     task = task_service.get_task(task_id)
     if not task:
@@ -67,9 +85,12 @@ def get_task(
     return task
 
 
+# ==================================================
+# Router Health Check
+# ==================================================
 @router.get("/health", status_code=status.HTTP_200_OK)
 def tasks_health() -> dict:
     """
-    Health check for the task router.
+    Health check endpoint for task router.
     """
     return {"status": "ok", "router": "tasks"}

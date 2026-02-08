@@ -3,12 +3,13 @@
 """
 Orchestrator Service.
 
-Coordinates high-level workflows without owning business logic.
+Coordinates high-level workflows for task execution without owning business logic.
 
 Acts as the system conductor:
-- Knows WHAT happens next
-- Delegates HOW things are executed
+- Knows WHAT happens next (planning)
+- Delegates HOW things are executed (agent & tool execution)
 - Integrates MCP-compliant tool execution
+- Persists results using TaskService & MemoryWriter
 """
 
 from typing import Optional, List
@@ -33,6 +34,12 @@ from app.services.memory_writer import MemoryWriter
 class OrchestratorService:
     """
     High-level workflow coordinator.
+
+    Responsibilities:
+    - Run tasks via agents
+    - Apply single or multi-agent strategies
+    - Trigger MCP tool executions
+    - Persist execution results via TaskService & MemoryWriter
     """
 
     def __init__(
@@ -56,12 +63,13 @@ class OrchestratorService:
 
     def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
         """
-        Execute a task and persist result.
+        Execute a task and persist result via TaskService.
         """
         context = AgentExecutionContext()
         plan = self._plan(agent, task_in, context)
         result = self._execute_plan(agent, task_in, plan, context)
 
+        # Persist task domain object
         return self._task_service.create(
             task_in=task_in,
             execution_result=result.dict(),
@@ -70,6 +78,7 @@ class OrchestratorService:
     def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
         """
         Execute a task without persistence.
+        Returns raw ExecutionResult for testing or transient executions.
         """
         context = AgentExecutionContext()
         plan = self._plan(agent, task_in, context)
@@ -85,6 +94,9 @@ class OrchestratorService:
         task_in: TaskCreate,
         context: AgentExecutionContext,
     ) -> ExecutionPlan:
+        """
+        Generate an execution plan using PlannerAgent.
+        """
         return self._planner_agent.plan(
             agent=agent,
             task=task_in,
@@ -96,6 +108,10 @@ class OrchestratorService:
     # ==================================================
 
     def _validate_plan(self, plan: ExecutionPlan) -> None:
+        """
+        Validates execution plan structure.
+        Ensures strategy consistency and step requirements.
+        """
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
@@ -116,6 +132,10 @@ class OrchestratorService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
+        """
+        Dispatch task execution according to strategy.
+        Handles agent execution, tool execution, and result persistence.
+        """
         self._validate_plan(plan)
 
         try:
@@ -125,7 +145,7 @@ class OrchestratorService:
             if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
                 result = self._execute_single_agent(agent, task_in, context)
             elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
-                result = self._execute_multi_agent_sequential(task_in, plan, context)
+                result = self._execute_multi_agent_branching(task_in, plan, context)
             else:
                 raise ValueError(f"Unsupported strategy: {plan.strategy}")
 
@@ -139,7 +159,7 @@ class OrchestratorService:
                     context=context,
                     fail_fast=True,
                 )
-            result.child_results = tool_results
+            result.child_results = (result.child_results or []) + tool_results
 
             # -----------------------------
             # Persist execution with MemoryWriter
@@ -179,8 +199,12 @@ class OrchestratorService:
         task_in: TaskCreate,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
+        """
+        Execute a single agent task.
+        """
         raw_result = self._agent_service.execute(agent, task_in, context)
 
+        # Collect tool calls
         tool_calls = raw_result.get("tool_calls", [])
         for call in tool_calls:
             context.add_tool_call(ToolCall(**call))
@@ -193,6 +217,9 @@ class OrchestratorService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
+        """
+        Execute multiple agents sequentially, passing outputs as inputs.
+        """
         current_input = task_in.description
         final_result: Optional[ExecutionResult] = None
 
@@ -204,6 +231,7 @@ class OrchestratorService:
 
             raw_result = self._agent_service.execute(agent, intermediate_task, context)
 
+            # Collect tool calls
             tool_calls = raw_result.get("tool_calls", [])
             for call in tool_calls:
                 context.add_tool_call(ToolCall(**call))
@@ -215,3 +243,41 @@ class OrchestratorService:
             raise RuntimeError("Multi-agent execution produced no result")
 
         return final_result
+
+    def _execute_multi_agent_branching(
+        self,
+        task_in: TaskCreate,
+        plan: ExecutionPlan,
+        parent_context: AgentExecutionContext,
+    ) -> ExecutionResult:
+        """
+        Execute multiple agents in branching/parallel style.
+        Aggregates all results as child_results.
+        """
+        child_results: List[ExecutionResult] = []
+        for agent in plan.steps:
+            # Each agent gets its own isolated context
+            context = AgentExecutionContext(run_id=parent_context.run_id)
+            intermediate_task = TaskCreate(
+                description=task_in.description,
+                input=task_in.description,
+            )
+
+            raw_result = self._agent_service.execute(agent, intermediate_task, context)
+
+            # Merge tool calls into parent
+            tool_calls = raw_result.get("tool_calls", [])
+            for call in tool_calls:
+                parent_context.add_tool_call(ToolCall(**call))
+
+            child_results.append(ExecutionResult(**raw_result))
+
+        # Return aggregated ExecutionResult
+        aggregated_result = ExecutionResult(
+            execution_id="aggregated-" + (task_in.description or "task"),
+            output=None,
+            status="SUCCESS",
+            child_results=child_results,
+        )
+
+        return aggregated_result
