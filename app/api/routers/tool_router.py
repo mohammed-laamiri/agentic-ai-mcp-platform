@@ -1,14 +1,18 @@
+# app/api/routers/tool_router.py
+
 """
 Tool API router.
 
 Exposes endpoints for managing tools in the registry:
-- Register
+- Register / update
 - Get by ID
 - List all
+- Health check
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
 from typing import List
+
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.tool import ToolCreate, ToolRead
 from app.services.tool_registry import ToolRegistry
@@ -23,19 +27,18 @@ def register_tool(
     registry: ToolRegistry = Depends(get_tool_registry),
 ) -> ToolRead:
     """
-    Register a new tool or update an existing one.
+    Register or update a tool in the registry.
     """
-    metadata = registry.register_tool(
-        metadata=tool_in  # will adjust mapping in registry if needed
-    )
-
-    # Return read-only representation
-    return ToolRead(
-        tool_id=tool_in.tool_id,
-        name=tool_in.name,
-        version=tool_in.version,
-        description=tool_in.description,
-    )
+    try:
+        tool = registry.register_tool(metadata=tool_in)
+        return ToolRead(
+            tool_id=tool.tool_id,
+            name=tool.name,
+            version=tool.version,
+            description=tool.description,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/{tool_id}", response_model=ToolRead)
@@ -59,7 +62,9 @@ def get_tool(
 
 
 @router.get("/", response_model=List[ToolRead])
-def list_tools(registry: ToolRegistry = Depends(get_tool_registry)) -> List[ToolRead]:
+def list_tools(
+    registry: ToolRegistry = Depends(get_tool_registry),
+) -> List[ToolRead]:
     """
     List all registered tools.
     """
@@ -73,3 +78,11 @@ def list_tools(registry: ToolRegistry = Depends(get_tool_registry)) -> List[Tool
         )
         for t in tools
     ]
+
+
+@router.get("/health", status_code=200)
+def tools_health() -> dict:
+    """
+    Health check endpoint for the tools router.
+    """
+    return {"status": "ok", "router": "tools"}

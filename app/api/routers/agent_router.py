@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+# app/api/routers/agent_router.py
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
@@ -18,8 +20,21 @@ def execute_agent(
     """
     Execute a task using an agent and return structured ExecutionResult.
 
-    Note:
-    - This endpoint does NOT persist the task.
-    - It is intended for direct agent execution calls.
+    Notes:
+    - Does NOT persist the task in the task store.
+    - Designed for direct agent execution / testing.
+    - Tool calls (if any) are executed according to MCP ToolExecutionEngine.
     """
-    return orchestrator.execute(agent=agent, task_in=task_in)
+    try:
+        return orchestrator.execute(agent=agent, task_in=task_in)
+    except Exception as exc:
+        # Return clean HTTP 500 response for unhandled errors
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/health", status_code=200)
+def agent_health() -> dict:
+    """
+    Health check endpoint for the agent router.
+    """
+    return {"status": "ok", "router": "agent"}

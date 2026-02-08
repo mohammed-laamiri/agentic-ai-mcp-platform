@@ -1,3 +1,5 @@
+# app/services/orchestrator.py
+
 """
 Orchestrator Service.
 
@@ -9,7 +11,7 @@ Acts as the system conductor:
 - Integrates MCP-compliant tool execution
 """
 
-from typing import Optional
+from typing import Optional, List
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
@@ -46,6 +48,7 @@ class OrchestratorService:
         self._planner_agent = planner_agent or PlannerAgent()
         self._tool_engine = ToolExecutionEngine(tool_registry=tool_registry)
         self._memory_writer = memory_writer
+        self._tool_registry = tool_registry
 
     # ==================================================
     # Public API
@@ -129,12 +132,14 @@ class OrchestratorService:
             # -----------------------------
             # Tool execution phase (MCP)
             # -----------------------------
+            tool_results: List[ExecutionResult] = []
             if context.tool_calls:
-                self._tool_engine.execute_batch(
+                tool_results = self._tool_engine.execute_batch(
                     tool_calls=context.tool_calls,
                     context=context,
                     fail_fast=True,
                 )
+            result.child_results = tool_results
 
             # -----------------------------
             # Persist execution with MemoryWriter
@@ -144,14 +149,18 @@ class OrchestratorService:
                 user_id=None,
                 strategy=plan.strategy,
                 metadata={
-                    "task_id": getattr(task_in, "id", None),
+                    "task_description": task_in.description,
                     "run_id": context.run_id,
                     "status": context.status,
                 },
-                tool_registry=None,
+                tool_registry=self._tool_registry,
             )
 
-            self._memory_writer.write_execution(exec_context, result)
+            self._memory_writer.write(
+                execution_result=result,
+                agent_context=context,
+                session_context=exec_context,
+            )
 
             context.mark_completed("completed")
             return result
