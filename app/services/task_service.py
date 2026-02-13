@@ -1,109 +1,73 @@
-# app/services/task_service.py
-
 """
 Task Service.
 
-Manages task domain logic, including:
-- Creating and persisting task records
-- Handling task lifecycle transitions
-- Returning fully-formed TaskRead objects
-
-This service represents the *task domain*. It DOES NOT:
-- Execute agents
-- Perform orchestration
-- Call external tools
+Responsibilities:
+- Handle task domain logic
+- Persist tasks using TaskRepository
+- Manage task lifecycle transitions: pending → completed/failed
+- Return TaskRead objects
 """
 
-from datetime import datetime
 from typing import List, Optional
+from datetime import datetime
 from uuid import uuid4
 
+from sqlmodel import Session
+from app.models.task import Task
 from app.schemas.task import TaskCreate, TaskRead, TaskStatus
 
 
 class TaskService:
-    """
-    Handles task domain operations.
+    """Service for Task operations."""
 
-    Responsibilities:
-    - Own task state transitions
-    - Return fully-formed TaskRead objects
-    - Provide methods for listing, retrieving, creating, completing, or failing tasks
+    def __init__(self, session: Session):
+        # Local import to break circular dependency
+        from app.repositories.task_repository import TaskRepository
+        self.repo = TaskRepository(session)
 
-    Restrictions:
-    - Should not execute agents or orchestrators
-    - Should not handle tool executions
-    """
-
-    def __init__(self) -> None:
-        # In-memory task store for now (future DB integration)
-        self._tasks: List[TaskRead] = []
-
-    # ==================================================
-    # Core Task Operations
-    # ==================================================
-    def create(self, task_in: TaskCreate, execution_result: dict) -> TaskRead:
-        """
-        Create a task record from execution results.
-
-        This represents the *first persistence step* of a task.
-        Future enhancements may include:
-        - Database persistence
-        - Event emission
-        - Audit/logging integration
-        """
-        task = TaskRead(
+    # -------------------------
+    # Create Task
+    # -------------------------
+    def create_task(self, task_in: TaskCreate, project_id: Optional[str] = None) -> TaskRead:
+        task = Task(
             id=str(uuid4()),
+            name=(task_in.description or "Unnamed Task")[:50],
             description=task_in.description,
-            status=TaskStatus.completed if execution_result.get("status") == "SUCCESS" else TaskStatus.failed,
-            result=execution_result.get("output") or execution_result.get("errors"),
             input=task_in.input,
+            status=TaskStatus.pending,
+            project_id=project_id,
             created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
         )
+        persisted_task = self.repo.create(task)
+        return TaskRead.model_validate(persisted_task)
 
-        self._tasks.append(task)
-        return task
-
-    def complete_task(self, task: TaskRead, output: str) -> TaskRead:
-        """
-        Mark a task as completed.
-
-        Use cases:
-        - Post-completion hooks
-        - External system updates
-        """
-        task.status = TaskStatus.completed
-        task.result = output
-        return task
-
-    def fail_task(self, task: TaskRead, error: str) -> TaskRead:
-        """
-        Mark a task as failed.
-
-        Use cases:
-        - Agent or tool failures
-        - Logging or notification triggers
-        """
-        task.status = TaskStatus.failed
-        task.result = error
-        return task
-
-    # ==================================================
-    # Retrieval Operations
-    # ==================================================
+    # -------------------------
+    # Retrieval
+    # -------------------------
     def get_task(self, task_id: str) -> Optional[TaskRead]:
-        """
-        Retrieve a task by its unique ID.
+        task = self.repo.get(task_id)
+        return TaskRead.model_validate(task) if task else None
 
-        Returns None if not found.
-        """
-        return next((t for t in self._tasks if t.id == task_id), None)
+    def list_tasks(self, skip: int = 0, limit: int = 100) -> List[TaskRead]:
+        tasks = self.repo.list(skip=skip, limit=limit)
+        return [TaskRead.model_validate(t) for t in tasks]
 
-    def list_tasks(self) -> List[TaskRead]:
-        """
-        List all tasks currently persisted in memory.
+    # -------------------------
+    # Lifecycle
+    # -------------------------
+    def complete_task(self, task_id: str, result: str) -> Optional[TaskRead]:
+        task = self.repo.get(task_id)
+        if not task:
+            return None
+        task.mark_completed(result)
+        updated_task = self.repo.update(task)
+        return TaskRead.model_validate(updated_task)
 
-        Future enhancements:
-        - Database query with filtering, pagination, and sorting
-        """
-        return self._tasks.copy()
+    def fail_task(self, task_id: str, error: str) -> Optional[TaskRead]:
+        task = self.repo.get(task_id)
+        if not task:
+            return None
+        task.mark_failed(error)
+        updated_task = self.repo.update(task)
+        return TaskRead.model_validate(updated_task)

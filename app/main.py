@@ -8,12 +8,15 @@ Responsibilities:
 - Load environment-specific settings
 - Register routers, middleware, and dependencies
 - Provide ASGI app for Uvicorn/Gunicorn
+- Initialize infrastructure layers (e.g. database)
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
+from app.core.db import init_db  # <-- Step 1.2: register DB initialization
+
 from app.api.routers import health_router, task_router
 from app.api.routers.agent_router import router as agent_router
 from app.api.routers.tool_router import router as tool_router
@@ -35,6 +38,27 @@ def create_app() -> FastAPI:
         version=getattr(settings, "version", "0.1.0"),
         description="Agentic AI MCP Platform API",
     )
+
+    # ==================================================
+    # Application Lifecycle Events
+    # ==================================================
+    @app.on_event("startup")
+    def on_startup() -> None:
+        """
+        Runs once when the application starts.
+
+        Infrastructure initialization happens here.
+
+        Today:
+        - Create database tables
+
+        Tomorrow:
+        - Warm up vector stores
+        - Load models
+        - Register agents
+        - Validate tool registry
+        """
+        init_db()
 
     # ==================================================
     # Middleware
