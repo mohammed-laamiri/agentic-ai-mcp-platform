@@ -1,98 +1,61 @@
 """
+app/core/db.py
+
 Database Core Module.
 
-This module is the *single source of truth* for database connectivity
-inside the Agentic AI MCP Platform.
-
-Responsibilities:
-- Create the SQLModel / SQLAlchemy engine
-- Manage DB sessions safely
-- Provide FastAPI dependency injection
-- Centralize future DB configuration (SQLite → Postgres, etc.)
-
-This layer MUST NOT:
-- Contain models
-- Contain business logic
-- Contain repositories
-- Know anything about agents or orchestration
-
-Think of this as the infrastructure foundation for persistence.
+Single source of truth for database connectivity.
+Supports both production and in-memory test databases.
 """
 
-from typing import Generator
+from typing import Generator, Optional
 
 from sqlmodel import SQLModel, Session, create_engine
 
-from app.core.config import Settings
+from app.core.config import get_settings
+
+# ============================================================
+# Global engine placeholder (lazy init)
+# ============================================================
+_engine: Optional[any] = None
+
+# ============================================================
+# Engine Factory
+# ============================================================
+def get_engine(test_engine: Optional[any] = None):
+    """
+    Lazily create and return the SQLAlchemy engine.
+
+    If `test_engine` is provided, returns it (for testing with in-memory DB).
+    Otherwise, creates engine from settings.
+    """
+    global _engine
+
+    if test_engine is not None:
+        _engine = test_engine
+        return _engine
+
+    if _engine is None:
+        settings = get_settings()
+        database_url = settings.DATABASE_URL
+        _engine = create_engine(
+            database_url,
+            echo=True,
+            connect_args={"check_same_thread": False}
+            if database_url.startswith("sqlite")
+            else {},
+        )
+    return _engine
 
 
 # ============================================================
-# Database URL Resolution
+# Session Dependency
 # ============================================================
-"""
-We resolve the database URL from settings.
-
-Today:
-- Default: SQLite (local dev)
-
-Tomorrow:
-- Postgres (RDS, Aurora, etc.)
-- MySQL
-- Any SQLAlchemy compatible backend
-
-This keeps the platform environment-agnostic.
-"""
-
-DATABASE_URL = Settings.DATABASE_URL
-
-
-# ============================================================
-# Engine Creation
-# ============================================================
-"""
-The engine manages the connection pool and communication
-between Python and the database.
-
-echo=True:
-- Logs SQL queries (great for development/debugging)
-- Should be False in production.
-"""
-
-engine = create_engine(
-    DATABASE_URL,
-    echo=True,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
-)
-
-
-# ============================================================
-# Session Factory
-# ============================================================
-"""
-Session is the unit-of-work pattern.
-
-Each request:
-- Opens a session
-- Uses it
-- Commits / rolls back
-- Closes safely
-
-We never share sessions across requests.
-"""
-
-
-def get_session() -> Generator[Session, None, None]:
+def get_session(test_engine: Optional[any] = None) -> Generator[Session, None, None]:
     """
     FastAPI dependency that provides a DB session.
-
-    Usage:
-        def endpoint(session: Session = Depends(get_session))
-
-    Lifecycle:
-        - Open session
-        - Yield to caller
-        - Always close after request
+    Can accept a test_engine for testing purposes.
     """
+    engine = get_engine(test_engine)
     with Session(engine) as session:
         yield session
 
@@ -100,26 +63,11 @@ def get_session() -> Generator[Session, None, None]:
 # ============================================================
 # Database Initialization
 # ============================================================
-"""
-Called once on application startup.
-
-It creates tables based on SQLModel metadata.
-
-Later improvements may include:
-- Alembic migrations
-- Versioning
-- Seeding
-"""
-
-
-def init_db() -> None:
+def init_db(test_engine: Optional[any] = None) -> None:
     """
     Initialize database schema.
-
-    This scans all SQLModel models and creates tables.
-
-    IMPORTANT:
-    - Should be called on app startup
-    - Safe to call multiple times
+    Safe to call multiple times.
+    Supports test_engine for in-memory DB.
     """
+    engine = get_engine(test_engine)
     SQLModel.metadata.create_all(engine)

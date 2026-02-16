@@ -15,13 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # ==================================================
-# Default database URL (SQLite local DB)
-# ==================================================
-database_url: str = "sqlite:///./mcp.db"
-
-
-# ==================================================
-# Settings class
+# Settings Class
 # ==================================================
 class Settings(BaseSettings):
     """
@@ -31,13 +25,14 @@ class Settings(BaseSettings):
     """
 
     # --------------------------------------------------
-    # Application info
+    # Application Info
     # --------------------------------------------------
     app_name: str = "Agentic AI MCP Platform"
-    environment: str = "development"  # dev, staging, prod
+    version: str = "0.1.0"
+    environment: str = "development"  # development | staging | production
 
     # --------------------------------------------------
-    # API / Server settings
+    # API / Server Settings
     # --------------------------------------------------
     api_prefix: str = "/api"
     host: str = "127.0.0.1"
@@ -46,16 +41,16 @@ class Settings(BaseSettings):
     # --------------------------------------------------
     # Database
     # --------------------------------------------------
-    database_url: str = database_url
+    DATABASE_URL: str = "sqlite:///./mcp.db"
 
     # --------------------------------------------------
-    # AWS / Bedrock placeholders (future AI layer)
+    # AWS / Bedrock (Future AI Layer)
     # --------------------------------------------------
     aws_region: str | None = None
     bedrock_model: str | None = None
 
     # --------------------------------------------------
-    # Pydantic Settings config
+    # Pydantic Settings Configuration
     # --------------------------------------------------
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -65,13 +60,16 @@ class Settings(BaseSettings):
 
 
 # ==================================================
-# Cached settings instance
+# Cached Singleton Settings
 # ==================================================
 @lru_cache
 def get_settings() -> Settings:
     """
-    Returns a singleton Settings instance.
+    Returns a cached Settings instance.
 
-    Caching ensures settings are loaded only once per application lifecycle.
+    Ensures:
+    - Settings loaded once
+    - Fast repeated access
+    - Safe for entire app lifecycle
     """
     return Settings()

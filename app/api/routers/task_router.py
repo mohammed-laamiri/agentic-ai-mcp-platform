@@ -1,96 +1,58 @@
 # app/api/routers/task_router.py
 
-"""
-Task Router
-
-Handles all task-related API endpoints:
-- Run tasks via agents
-- List persisted tasks
-- Retrieve tasks by ID
-- Router health check
-"""
-
-from typing import List
-
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.task import TaskCreate, TaskRead
-from app.schemas.agent import AgentRead
-from app.services.orchestrator import OrchestratorService
 from app.services.task_service import TaskService
-from app.api.deps import get_orchestrator, get_task_service
 
-router = APIRouter(prefix="/tasks", tags=["Tasks"])
+router = APIRouter(tags=["Tasks"])
 
+# ----------------------------
+# Singleton TaskService (shared in-memory store)
+# ----------------------------
+task_service = TaskService()
 
-# ==================================================
-# Task Execution Endpoint
-# ==================================================
-@router.post("/run", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
-def run_task(
-    task_in: TaskCreate,
-    agent: AgentRead,
-    orchestrator: OrchestratorService = Depends(get_orchestrator),
-) -> TaskRead:
-    """
-    Run a task using a selected agent.
+def get_task_service() -> TaskService:
+    return task_service
 
-    Orchestrates the full execution:
-    - Single or multi-agent planning
-    - Agent execution
-    - Tool calls (MCP)
-    - Memory persistence
-    - Task persistence via TaskService
-    """
-    try:
-        return orchestrator.run(agent=agent, task_in=task_in)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+# ----------------------------
+# CRUD Endpoints
+# ----------------------------
+
+@router.post("/", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
+def create_task(task_in: TaskCreate, service: TaskService = Depends(get_task_service)):
+    return service.create_task(task_in)
 
 
-# ==================================================
-# List All Tasks
-# ==================================================
-@router.get("/", response_model=List[TaskRead])
-def list_tasks(
-    task_service: TaskService = Depends(get_task_service),
-) -> List[TaskRead]:
-    """
-    List all persisted tasks.
-
-    Uses TaskService as the source of truth.
-    """
-    try:
-        return task_service.list_tasks()
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-# ==================================================
-# Retrieve Single Task
-# ==================================================
 @router.get("/{task_id}", response_model=TaskRead)
-def get_task(
-    task_id: str,
-    task_service: TaskService = Depends(get_task_service),
-) -> TaskRead:
-    """
-    Retrieve a task by its unique ID.
-    """
-    task = task_service.get_task(task_id)
+def get_task(task_id: str, service: TaskService = Depends(get_task_service)):
+    task = service.get_task(task_id)
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return task
 
 
-# ==================================================
-# Router Health Check
-# ==================================================
-@router.get("/health", status_code=status.HTTP_200_OK)
-def tasks_health() -> dict:
-    """
-    Health check endpoint for task router.
-    """
-    return {"status": "ok", "router": "tasks"}
+@router.get("/", response_model=List[TaskRead])
+def list_tasks(skip: int = 0, limit: int = 100, service: TaskService = Depends(get_task_service)):
+    return service.list_tasks(skip=skip, limit=limit)
+
+
+@router.post("/{task_id}/complete", response_model=TaskRead)
+def complete_task(
+    task_id: str,
+    result: Optional[Dict[str, Any]] = None,
+    service: TaskService = Depends(get_task_service)
+):
+    task = service.complete_task(task_id, result or {})
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
+
+
+@router.post("/{task_id}/fail", response_model=TaskRead)
+def fail_task(task_id: str, error: str, service: TaskService = Depends(get_task_service)):
+    task = service.fail_task(task_id, error)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task

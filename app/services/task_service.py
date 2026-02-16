@@ -1,73 +1,64 @@
-"""
-Task Service.
-
-Responsibilities:
-- Handle task domain logic
-- Persist tasks using TaskRepository
-- Manage task lifecycle transitions: pending → completed/failed
-- Return TaskRead objects
-"""
-
-from typing import List, Optional
-from datetime import datetime
+from typing import Optional, Dict, List, Any
 from uuid import uuid4
+from datetime import datetime
 
-from sqlmodel import Session
-from app.models.task import Task
-from app.schemas.task import TaskCreate, TaskRead, TaskStatus
+from app.schemas.task import TaskCreate, TaskRead
+from app.models.task import Task  # simple class or ORM
 
 
 class TaskService:
-    """Service for Task operations."""
+    """
+    Service layer for task management.
+    Handles in-memory storage, creation, updates, and task status changes.
+    """
 
-    def __init__(self, session: Session):
-        # Local import to break circular dependency
-        from app.repositories.task_repository import TaskRepository
-        self.repo = TaskRepository(session)
+    def __init__(self):
+        self._tasks: Dict[str, Task] = {}
 
-    # -------------------------
-    # Create Task
-    # -------------------------
-    def create_task(self, task_in: TaskCreate, project_id: Optional[str] = None) -> TaskRead:
+    def create_task(self, task_create: TaskCreate) -> TaskRead:
+        task_id = str(uuid4())
+        now = datetime.utcnow()
         task = Task(
-            id=str(uuid4()),
-            name=(task_in.description or "Unnamed Task")[:50],
-            description=task_in.description,
-            input=task_in.input,
-            status=TaskStatus.pending,
-            project_id=project_id,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            id=task_id,
+            name=task_create.name,
+            description=task_create.description,
+            status=task_create.status,
+            priority=task_create.priority,
+            input=task_create.input or {},
+            result={},
+            created_at=now,
+            updated_at=now,
+            started_at=None,
+            completed_at=None,
+            project_id=None,
         )
-        persisted_task = self.repo.create(task)
-        return TaskRead.model_validate(persisted_task)
+        self._tasks[task_id] = task
+        return TaskRead(**vars(task))
 
-    # -------------------------
-    # Retrieval
-    # -------------------------
     def get_task(self, task_id: str) -> Optional[TaskRead]:
-        task = self.repo.get(task_id)
-        return TaskRead.model_validate(task) if task else None
+        task = self._tasks.get(task_id)
+        return TaskRead(**vars(task)) if task else None
 
     def list_tasks(self, skip: int = 0, limit: int = 100) -> List[TaskRead]:
-        tasks = self.repo.list(skip=skip, limit=limit)
-        return [TaskRead.model_validate(t) for t in tasks]
+        tasks = list(self._tasks.values())[skip : skip + limit]
+        return [TaskRead(**vars(t)) for t in tasks]
 
-    # -------------------------
-    # Lifecycle
-    # -------------------------
-    def complete_task(self, task_id: str, result: str) -> Optional[TaskRead]:
-        task = self.repo.get(task_id)
+    def complete_task(self, task_id: str, result: Optional[Dict[str, Any]] = None) -> Optional[TaskRead]:
+        task = self._tasks.get(task_id)
         if not task:
             return None
-        task.mark_completed(result)
-        updated_task = self.repo.update(task)
-        return TaskRead.model_validate(updated_task)
+        task.status = "completed"
+        task.result = result or {}
+        task.completed_at = datetime.utcnow()
+        task.updated_at = datetime.utcnow()
+        return TaskRead(**vars(task))
 
     def fail_task(self, task_id: str, error: str) -> Optional[TaskRead]:
-        task = self.repo.get(task_id)
+        task = self._tasks.get(task_id)
         if not task:
             return None
-        task.mark_failed(error)
-        updated_task = self.repo.update(task)
-        return TaskRead.model_validate(updated_task)
+        task.status = "failed"
+        task.result = {"error": error}
+        task.completed_at = datetime.utcnow()
+        task.updated_at = datetime.utcnow()
+        return TaskRead(**vars(task))

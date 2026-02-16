@@ -1,75 +1,64 @@
 """
-Execution Context.
+ExecutionContext Schema
 
-Runtime context shared across agents and tools
-during execution of an ExecutionPlan.
-
-This is NOT the plan itself.
-This is the evolving state while the plan runs.
-
-Architectural intent:
-- Created by Orchestrator
-- Passed across agents and tools
-- Holds shared state, outputs, and variables
+Safe for FastAPI & Pydantic v2.
+Captures runtime state for agents and tools.
 """
 
-from typing import Any, Dict, Optional
-from typing_extensions import Annotated
-from pydantic import BaseModel, Field
+from typing import Dict, Any, Optional
+from pydantic import BaseModel, PrivateAttr
 
 
 class ExecutionContext(BaseModel):
     """
     Runtime execution state container.
 
-    Used for:
-    - Variable passing between agents
-    - Capturing agent outputs
-    - Capturing tool outputs
+    Attributes:
+        task_id: ID of the associated task
+        user_input: Original user request
     """
 
-    task_id: str = Field(..., description="Associated task identifier")
-    user_input: str = Field(..., description="Original user request")
+    task_id: str
+    user_input: str
 
-    variables: Annotated[
-        Dict[str, Any],
-        Field(default_factory=dict, description="Shared mutable variables across agents"),
-    ]
+    # Use Pydantic v2 private attributes for mutable dicts
+    _variables: Dict[str, Any] = PrivateAttr(default_factory=dict)
+    _agent_outputs: Dict[str, Any] = PrivateAttr(default_factory=dict)
+    _tool_outputs: Dict[str, Any] = PrivateAttr(default_factory=dict)
 
-    agent_outputs: Annotated[
-        Dict[str, Any],
-        Field(default_factory=dict, description="Outputs keyed by agent name"),
-    ]
-
-    tool_outputs: Annotated[
-        Dict[str, Any],
-        Field(default_factory=dict, description="Outputs keyed by tool name"),
-    ]
-
-    # -------------------------------------------------
-    # Helpers (non-breaking)
-    # -------------------------------------------------
-
+    # -------------------------------
+    # Helpers for easy manipulation
+    # -------------------------------
     def set_variable(self, key: str, value: Any) -> None:
-        """
-        Store a shared variable.
-        """
-        self.variables[key] = value
+        """Set a variable in the execution context"""
+        self._variables[key] = value
 
     def get_variable(self, key: str, default: Optional[Any] = None) -> Any:
-        """
-        Retrieve a shared variable.
-        """
-        return self.variables.get(key, default)
+        """Retrieve a variable value, returns default if not found"""
+        return self._variables.get(key, default)
 
     def add_agent_output(self, agent_name: str, output: Any) -> None:
-        """
-        Store output from an agent.
-        """
-        self.agent_outputs[agent_name] = output
+        """Store an agent's output"""
+        self._agent_outputs[agent_name] = output
 
     def add_tool_output(self, tool_name: str, output: Any) -> None:
-        """
-        Store output from a tool.
-        """
-        self.tool_outputs[tool_name] = output
+        """Store a tool's output"""
+        self._tool_outputs[tool_name] = output
+
+    # Optionally expose read-only views for serialization/logging
+    @property
+    def variables(self) -> Dict[str, Any]:
+        return dict(self._variables)
+
+    @property
+    def agent_outputs(self) -> Dict[str, Any]:
+        return dict(self._agent_outputs)
+
+    @property
+    def tool_outputs(self) -> Dict[str, Any]:
+        return dict(self._tool_outputs)
+
+    # Pydantic v2 ORM support
+    model_config = {
+        "from_attributes": True
+    }

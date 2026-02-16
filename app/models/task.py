@@ -1,66 +1,37 @@
 # app/models/task.py
 
-from typing import Optional, Union
+from typing import Optional, Dict, Any, List
 from datetime import datetime
-from sqlmodel import SQLModel, Field, Column
-from sqlalchemy import JSON
-from enum import Enum
 
-
-class TaskStatus(str, Enum):
-    pending = "pending"
-    in_progress = "in_progress"
-    completed = "completed"
-    failed = "failed"
-
-
-class Task(SQLModel, table=True):
+class Task:
     """
-    Task ORM model.
-
-    Fields:
-    - id: unique task ID
-    - name: short name
-    - description: longer description
-    - input: JSON dict of inputs
-    - result: JSON dict or string of output/result
-    - status: lifecycle status
-    - timestamps: created, updated, started, completed
-    - project_id: optional project association
-    - priority: int priority
+    In-memory Task model for Agentic AI MCP Platform.
+    Compatible with TaskService and TaskRead schema.
     """
-
-    id: str = Field(primary_key=True)
-    name: str
-    description: str
-    input: dict = Field(default_factory=dict, sa_column=Column(JSON))
-    result: Optional[Union[str, dict]] = Field(default=None, sa_column=Column(JSON))
-    status: TaskStatus = Field(default=TaskStatus.pending)
-
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    project_id: Optional[str] = None
-    priority: int = 1  # default priority
-
-    # ==================================================
-    # Lifecycle methods
-    # ==================================================
-    def mark_started(self):
-        self.status = TaskStatus.in_progress
-        self.started_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
-
-    def mark_completed(self, result: Union[str, dict]):
-        self.status = TaskStatus.completed
+    def __init__(
+        self,
+        id: str,
+        name: str,
+        description: Optional[str],
+        status: str,
+        priority: int,
+        input: Optional[Dict[str, Any]] = None,
+        result: Optional[Any] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        started_at: Optional[datetime] = None,
+        completed_at: Optional[datetime] = None,
+        project_id: Optional[str] = None,
+    ):
+        self.id = id
+        self.name = name
+        self.description = description
+        self.status = status
+        self.priority = priority
+        self.input = input or {}
         self.result = result
-        self.completed_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
-
-    def mark_failed(self, error: str):
-        self.status = TaskStatus.failed
-        self.result = error
-        self.completed_at = datetime.utcnow()
-        self.updated_at = datetime.utcnow()
+        self.created_at = created_at
+        self.updated_at = updated_at
+        self.started_at = started_at
+        self.completed_at = completed_at
+        self.project_id = project_id

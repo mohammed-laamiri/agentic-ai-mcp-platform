@@ -1,25 +1,17 @@
 # app/api/routers/tool_router.py
 
-"""
-Tool API router.
-
-Exposes endpoints for managing tools in the registry:
-- Register / update
-- Get by ID
-- List all
-- Health check
-"""
-
 from typing import List
-
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.tool import ToolCreate, ToolRead
 from app.services.tool_registry import ToolRegistry
 from app.api.deps import get_tool_registry
 
-router = APIRouter(prefix="/tools", tags=["Tools"])
+router = APIRouter(tags=["Tools"])
 
+# ----------------------------
+# Tool Endpoints
+# ----------------------------
 
 @router.post("/", response_model=ToolRead, status_code=status.HTTP_201_CREATED)
 def register_tool(
@@ -31,12 +23,7 @@ def register_tool(
     """
     try:
         tool = registry.register_tool(metadata=tool_in)
-        return ToolRead(
-            tool_id=tool.tool_id,
-            name=tool.name,
-            version=tool.version,
-            description=tool.description,
-        )
+        return ToolRead.model_validate(tool)  # Pydantic v2 compatible
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -52,13 +39,7 @@ def get_tool(
     tool = registry.get_tool(tool_id)
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
-
-    return ToolRead(
-        tool_id=tool.tool_id,
-        name=tool.name,
-        version=tool.version,
-        description=tool.description,
-    )
+    return ToolRead.model_validate(tool)
 
 
 @router.get("/", response_model=List[ToolRead])
@@ -69,15 +50,7 @@ def list_tools(
     List all registered tools.
     """
     tools = registry.list_tools()
-    return [
-        ToolRead(
-            tool_id=t.tool_id,
-            name=t.name,
-            version=t.version,
-            description=t.description,
-        )
-        for t in tools
-    ]
+    return [ToolRead.model_validate(t) for t in tools]
 
 
 @router.get("/health", status_code=200)
