@@ -1,5 +1,3 @@
-# app/services/orchestrator.py
-
 """
 Orchestrator Service.
 
@@ -67,13 +65,9 @@ class OrchestratorService:
         """
         context = AgentExecutionContext()
         plan = self._plan(agent, task_in, context)
-        result = self._execute_plan(agent, task_in, plan, context)
+        self._execute_plan(agent, task_in, plan, context)
 
-        # Persist task domain object
-        return self._task_service.create(
-            task_in=task_in,
-            execution_result=result.dict(),
-        )
+        return self._task_service.create_task(task_in)
 
     def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
         """
@@ -115,9 +109,11 @@ class OrchestratorService:
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
+
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             if not plan.steps or len(plan.steps) < 2:
                 raise ValueError("MULTI_AGENT requires at least two agents")
+
         else:
             raise ValueError(f"Unknown strategy: {plan.strategy}")
 
@@ -132,47 +128,62 @@ class OrchestratorService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
-        """
-        Dispatch task execution according to strategy.
-        Handles agent execution, tool execution, and result persistence.
-        """
+
         self._validate_plan(plan)
 
         try:
-            # -----------------------------
-            # Agent execution phase
-            # -----------------------------
+
+            # Agent execution
             if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
                 result = self._execute_single_agent(agent, task_in, context)
+
             elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
-                result = self._execute_multi_agent_branching(task_in, plan, context)
+                result = self._execute_multi_agent_branching(
+                    task_in,
+                    plan,
+                    context,
+                )
             else:
                 raise ValueError(f"Unsupported strategy: {plan.strategy}")
 
-            # -----------------------------
-            # Tool execution phase (MCP)
-            # -----------------------------
+            # Tool execution
             tool_results: List[ExecutionResult] = []
+
             if context.tool_calls:
+
                 tool_results = self._tool_engine.execute_batch(
                     tool_calls=context.tool_calls,
                     context=context,
                     fail_fast=True,
                 )
-            result.child_results = (result.child_results or []) + tool_results
 
-            # -----------------------------
-            # Persist execution with MemoryWriter
-            # -----------------------------
+            result.child_results = (
+                result.child_results or []
+            ) + tool_results
+
+            # Persist execution
+            task_read = self._task_service.create_task(task_in)
+
             exec_context = ExecutionContext(
                 session_id="session-placeholder",
                 user_id=None,
+                task_id=task_read.id,
+
+                # SAFE conversion
+                user_input=(
+                    task_in.input
+                    if isinstance(task_in.input, str)
+                    else str(task_in.input or "")
+                ),
+
                 strategy=plan.strategy,
+
                 metadata={
                     "task_description": task_in.description,
                     "run_id": context.run_id,
                     "status": context.status,
                 },
+
                 tool_registry=self._tool_registry,
             )
 
@@ -183,10 +194,13 @@ class OrchestratorService:
             )
 
             context.mark_completed("completed")
+
             return result
 
         except Exception as exc:
+
             context.mark_completed("failed")
+
             raise exc
 
     # ==================================================
@@ -199,13 +213,15 @@ class OrchestratorService:
         task_in: TaskCreate,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
-        """
-        Execute a single agent task.
-        """
-        raw_result = self._agent_service.execute(agent, task_in, context)
 
-        # Collect tool calls
+        raw_result = self._agent_service.execute(
+            agent,
+            task_in,
+            context,
+        )
+
         tool_calls = raw_result.get("tool_calls", [])
+
         for call in tool_calls:
             context.add_tool_call(ToolCall(**call))
 
@@ -217,30 +233,37 @@ class OrchestratorService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
-        """
-        Execute multiple agents sequentially, passing outputs as inputs.
-        """
+
         current_input = task_in.description
+
         final_result: Optional[ExecutionResult] = None
 
         for agent in plan.steps:
+
             intermediate_task = TaskCreate(
                 description=current_input,
                 input=current_input,
             )
 
-            raw_result = self._agent_service.execute(agent, intermediate_task, context)
+            raw_result = self._agent_service.execute(
+                agent,
+                intermediate_task,
+                context,
+            )
 
-            # Collect tool calls
             tool_calls = raw_result.get("tool_calls", [])
+
             for call in tool_calls:
                 context.add_tool_call(ToolCall(**call))
 
             final_result = ExecutionResult(**raw_result)
+
             current_input = final_result.output or ""
 
         if final_result is None:
-            raise RuntimeError("Multi-agent execution produced no result")
+            raise RuntimeError(
+                "Multi-agent execution produced no result"
+            )
 
         return final_result
 
@@ -250,34 +273,38 @@ class OrchestratorService:
         plan: ExecutionPlan,
         parent_context: AgentExecutionContext,
     ) -> ExecutionResult:
-        """
-        Execute multiple agents in branching/parallel style.
-        Aggregates all results as child_results.
-        """
+
         child_results: List[ExecutionResult] = []
+
         for agent in plan.steps:
-            # Each agent gets its own isolated context
-            context = AgentExecutionContext(run_id=parent_context.run_id)
+
+            context = AgentExecutionContext(
+                run_id=parent_context.run_id
+            )
+
             intermediate_task = TaskCreate(
                 description=task_in.description,
                 input=task_in.description,
             )
 
-            raw_result = self._agent_service.execute(agent, intermediate_task, context)
+            raw_result = self._agent_service.execute(
+                agent,
+                intermediate_task,
+                context,
+            )
 
-            # Merge tool calls into parent
             tool_calls = raw_result.get("tool_calls", [])
+
             for call in tool_calls:
                 parent_context.add_tool_call(ToolCall(**call))
 
-            child_results.append(ExecutionResult(**raw_result))
+            child_results.append(
+                ExecutionResult(**raw_result)
+            )
 
-        # Return aggregated ExecutionResult
-        aggregated_result = ExecutionResult(
+        return ExecutionResult(
             execution_id="aggregated-" + (task_in.description or "task"),
             output=None,
             status="SUCCESS",
             child_results=child_results,
         )
-
-        return aggregated_result

@@ -13,7 +13,10 @@ def test_agent_execute_returns_stub_response():
     service = AgentService()
 
     agent = AgentRead(id="agent-1", name="TestAgent")
-    task = TaskCreate(description="Test task")
+    task = TaskCreate(
+        name="Test Task",        # <--- REQUIRED
+        description="Test task"
+)
 
     result = service.execute(agent=agent, task=task)
 
