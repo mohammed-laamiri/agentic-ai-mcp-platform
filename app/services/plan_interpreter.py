@@ -2,30 +2,31 @@
 Plan Interpreter
 ================
 
-Converts ExecutionPlan into executable steps.
+Converts ExecutionPlan into executable agent sequence.
 
-This version is schema-agnostic and works with your existing ExecutionPlan schema.
+Aligned with ExecutionPlan schema:
+    steps: Optional[List[AgentRead]]
+
+This layer isolates orchestration logic from planner and runtime.
 """
 
-from typing import List, Any
+from typing import List
 
 from app.schemas.execution_plan import ExecutionPlan
+from app.schemas.agent import AgentRead
 
 
 class PlanInterpreter:
     """
-    Converts ExecutionPlan into executable steps.
-
-    Does NOT assume specific step class type.
-    Works with your current schema safely.
+    Extracts agent execution sequence from ExecutionPlan.
     """
 
     def interpret(
         self,
         plan: ExecutionPlan,
-    ) -> List[Any]:
+    ) -> List[AgentRead]:
         """
-        Extract steps from execution plan.
+        Extract ordered list of agents to execute.
 
         Parameters
         ----------
@@ -33,27 +34,19 @@ class PlanInterpreter:
 
         Returns
         -------
-        List[Any]
-            Execution steps
+        List[AgentRead]
+            Agents to execute in order.
         """
 
-        # Safety check
         if plan is None:
             return []
 
-        # Ensure steps attribute exists
-        if not hasattr(plan, "steps"):
-            raise ValueError(
-                "ExecutionPlan missing required attribute: steps"
-            )
-
-        # Ensure steps is iterable
         if plan.steps is None:
             return []
 
         if not isinstance(plan.steps, list):
             raise ValueError(
-                "ExecutionPlan.steps must be a list"
+                "ExecutionPlan.steps must be a list of AgentRead"
             )
 
         return plan.steps
