@@ -27,6 +27,7 @@ from app.services.planner_agent import PlannerAgent
 from app.services.tool_execution_engine import ToolExecutionEngine
 from app.services.tool_registry import ToolRegistry
 from app.services.memory_writer import MemoryWriter
+from app.repositories.execution_history_repository import ExecutionHistoryRepository
 
 
 class OrchestratorService:
@@ -46,6 +47,7 @@ class OrchestratorService:
         agent_service: AgentService,
         tool_registry: ToolRegistry,
         memory_writer: MemoryWriter,
+        history_repo: Optional[ExecutionHistoryRepository] = None,
         planner_agent: Optional[PlannerAgent] = None,
     ) -> None:
         self._task_service = task_service
@@ -54,6 +56,7 @@ class OrchestratorService:
         self._tool_engine = ToolExecutionEngine(tool_registry=tool_registry)
         self._memory_writer = memory_writer
         self._tool_registry = tool_registry
+        self._history_repo = history_repo  # optional ExecutionHistoryRepository
 
     # ==================================================
     # Public API
@@ -109,11 +112,9 @@ class OrchestratorService:
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
-
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             if not plan.steps or len(plan.steps) < 2:
                 raise ValueError("MULTI_AGENT requires at least two agents")
-
         else:
             raise ValueError(f"Unknown strategy: {plan.strategy}")
 
@@ -133,10 +134,11 @@ class OrchestratorService:
 
         try:
 
+            # -----------------------------
             # Agent execution
+            # -----------------------------
             if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
                 result = self._execute_single_agent(agent, task_in, context)
-
             elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
                 result = self._execute_multi_agent_branching(
                     task_in,
@@ -146,61 +148,60 @@ class OrchestratorService:
             else:
                 raise ValueError(f"Unsupported strategy: {plan.strategy}")
 
+            # -----------------------------
             # Tool execution
+            # -----------------------------
             tool_results: List[ExecutionResult] = []
-
             if context.tool_calls:
-
                 tool_results = self._tool_engine.execute_batch(
                     tool_calls=context.tool_calls,
                     context=context,
                     fail_fast=True,
                 )
+            result.child_results = (result.child_results or []) + tool_results
 
-            result.child_results = (
-                result.child_results or []
-            ) + tool_results
+            # -----------------------------
+            # Persist execution with MemoryWriter
+            # -----------------------------
 
-            # Persist execution
+            # First mark context completed so status is correct
+            context.mark_completed("completed")
+
             task_read = self._task_service.create_task(task_in)
 
             exec_context = ExecutionContext(
                 session_id="session-placeholder",
                 user_id=None,
                 task_id=task_read.id,
-
-                # SAFE conversion
-                user_input=(
-                    task_in.input
-                    if isinstance(task_in.input, str)
-                    else str(task_in.input or "")
-                ),
-
+                # SAFE conversion for dict → str
+                user_input=(task_in.input if isinstance(task_in.input, str) else str(task_in.input or "")),
                 strategy=plan.strategy,
-
                 metadata={
                     "task_description": task_in.description,
                     "run_id": context.run_id,
-                    "status": context.status,
+                    "status": context.status,  # now correctly "completed"
                 },
-
                 tool_registry=self._tool_registry,
             )
 
+            # Write to memory
             self._memory_writer.write(
                 execution_result=result,
                 agent_context=context,
                 session_context=exec_context,
             )
 
-            context.mark_completed("completed")
+            # Save to ExecutionHistoryRepository if provided
+            if self._history_repo:
+                self._history_repo.save({
+                    "execution_result": result,
+                    "metadata": exec_context.metadata,
+                })
 
             return result
 
         except Exception as exc:
-
             context.mark_completed("failed")
-
             raise exc
 
     # ==================================================
@@ -214,14 +215,8 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> ExecutionResult:
 
-        raw_result = self._agent_service.execute(
-            agent,
-            task_in,
-            context,
-        )
-
+        raw_result = self._agent_service.execute(agent, task_in, context)
         tool_calls = raw_result.get("tool_calls", [])
-
         for call in tool_calls:
             context.add_tool_call(ToolCall(**call))
 
@@ -235,35 +230,24 @@ class OrchestratorService:
     ) -> ExecutionResult:
 
         current_input = task_in.description
-
         final_result: Optional[ExecutionResult] = None
 
         for agent in plan.steps:
-
             intermediate_task = TaskCreate(
                 description=current_input,
                 input=current_input,
             )
 
-            raw_result = self._agent_service.execute(
-                agent,
-                intermediate_task,
-                context,
-            )
-
+            raw_result = self._agent_service.execute(agent, intermediate_task, context)
             tool_calls = raw_result.get("tool_calls", [])
-
             for call in tool_calls:
                 context.add_tool_call(ToolCall(**call))
 
             final_result = ExecutionResult(**raw_result)
-
             current_input = final_result.output or ""
 
         if final_result is None:
-            raise RuntimeError(
-                "Multi-agent execution produced no result"
-            )
+            raise RuntimeError("Multi-agent execution produced no result")
 
         return final_result
 
@@ -277,30 +261,18 @@ class OrchestratorService:
         child_results: List[ExecutionResult] = []
 
         for agent in plan.steps:
-
-            context = AgentExecutionContext(
-                run_id=parent_context.run_id
-            )
-
+            context = AgentExecutionContext(run_id=parent_context.run_id)
             intermediate_task = TaskCreate(
                 description=task_in.description,
                 input=task_in.description,
             )
 
-            raw_result = self._agent_service.execute(
-                agent,
-                intermediate_task,
-                context,
-            )
-
+            raw_result = self._agent_service.execute(agent, intermediate_task, context)
             tool_calls = raw_result.get("tool_calls", [])
-
             for call in tool_calls:
                 parent_context.add_tool_call(ToolCall(**call))
 
-            child_results.append(
-                ExecutionResult(**raw_result)
-            )
+            child_results.append(ExecutionResult(**raw_result))
 
         return ExecutionResult(
             execution_id="aggregated-" + (task_in.description or "task"),
