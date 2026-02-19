@@ -1,85 +1,71 @@
+# app/main.py
+
 """
-Application entry point.
-
-This module is responsible for:
-- Creating the FastAPI application instance
-- Loading configuration
-- Registering routers and middleware
-
-IMPORTANT:
-- No business logic lives here
-- No service instantiation happens here
-- This file should stay thin and declarative
+Application entry point for the Agentic AI MCP Platform.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-# Centralized application settings (Pydantic Settings)
 from app.core.config import get_settings
+from app.core.db import init_db
 
-# API routers
+# Routers
 from app.api.routers import health_router, task_router
 from app.api.routers.agent_router import router as agent_router
 from app.api.routers.tool_router import router as tool_router
 
 
-def create_app() -> FastAPI:
+# ==================================================
+# Lifespan
+# ==================================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """
-    Application factory.
+    Application startup and shutdown lifecycle.
+    """
+    # Initialize database here
+    init_db()
+    yield
+    # Place for shutdown tasks if needed
 
-    Why we use an app factory:
-    - Allows easier testing
-    - Enables different configs per environment
-    - Prevents side effects at import time
-    """
+
+# ==================================================
+# App Factory
+# ==================================================
+def create_app() -> FastAPI:
     settings = get_settings()
 
     app = FastAPI(
         title=settings.app_name,
-        version="0.1.0",
+        version=getattr(settings, "version", "0.1.0"),
         description="Agentic AI MCP Platform API",
+        lifespan=lifespan,
     )
 
-    # -------------------------
-    # Router Registration
-    # -------------------------
-
-    # Health check endpoints
-    # Used by:
-    # - Load balancers
-    # - Monitoring systems
-    # - CI/CD smoke tests
-    app.include_router(
-        health_router,
-        prefix="/api",
-        tags=["Health"],
+    # CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Restrict in production
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
-    # Task execution endpoints
-    # This is the first real business-facing API
-    app.include_router(
-        task_router,
-        prefix="/api",
-        tags=["Tasks"],
-    )
+    # API prefix
+    API_PREFIX = "/api"
 
-    # Agent execution endpoint
-    app.include_router(
-        agent_router,
-        prefix="/api",
-        tags=["Agent"],
-    )
-
-    app.include_router(
-    tool_router,
-    prefix="/api",
-    tags=["Tools"],
-    )
-
+    # Include routers
+    app.include_router(health_router, prefix=API_PREFIX, tags=["Health"])
+    app.include_router(task_router, prefix=f"{API_PREFIX}/tasks", tags=["Tasks"])
+    app.include_router(agent_router, prefix=f"{API_PREFIX}/agents", tags=["Agents"])
+    app.include_router(tool_router, prefix=f"{API_PREFIX}/tools", tags=["Tools"])
 
     return app
 
 
-# ASGI application instance
-# This is what Uvicorn / Gunicorn will load
+# ==================================================
+# ASGI App
+# ==================================================
 app = create_app()

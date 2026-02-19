@@ -1,76 +1,64 @@
-"""
-Task service.
-
-Responsible for:
-- Creating task records
-- Managing task lifecycle
-- Returning domain-level task responses
-
-This service represents the *task domain*.
-It does NOT know:
-- How agents work
-- How orchestration is done
-"""
-
-from datetime import datetime
+from typing import Optional, Dict, List, Any
 from uuid import uuid4
+from datetime import datetime
 
-from app.schemas.task import TaskCreate, TaskRead, TaskStatus
+from app.schemas.task import TaskCreate, TaskRead
+from app.models.task import Task  # simple class or ORM
 
 
 class TaskService:
     """
-    Handles task domain logic.
-
-    This service SHOULD:
-    - Own task state transitions
-    - Return fully-formed TaskRead objects
-
-    This service SHOULD NOT:
-    - Execute agents
-    - Contain orchestration logic
+    Service layer for task management.
+    Handles in-memory storage, creation, updates, and task status changes.
     """
 
-    def create(self, task_in: TaskCreate, execution_result: dict) -> TaskRead:
-        """
-        Create a task record from execution results.
+    def __init__(self):
+        self._tasks: Dict[str, Task] = {}
 
-        This method represents the *first persistence step* of a task.
-        In future iterations, this may:
-        - Write to a database
-        - Emit events
-        - Trigger audit logs
-        """
-
-        return TaskRead(
-            id=str(uuid4()),
-            description=task_in.description,
-            status=TaskStatus.completed,
-            result=execution_result.get("output"),
-            input=task_in.input,
-            created_at=datetime.utcnow(),
+    def create_task(self, task_create: TaskCreate) -> TaskRead:
+        task_id = str(uuid4())
+        now = datetime.utcnow()
+        task = Task(
+            id=task_id,
+            name=task_create.name,
+            description=task_create.description,
+            status=task_create.status,
+            priority=task_create.priority,
+            input=task_create.input or {},
+            result={},
+            created_at=now,
+            updated_at=now,
+            started_at=None,
+            completed_at=None,
+            project_id=None,
         )
+        self._tasks[task_id] = task
+        return TaskRead(**vars(task))
 
-    def complete_task(self, task: TaskRead, output: str) -> TaskRead:
-        """
-        Mark a task as completed.
+    def get_task(self, task_id: str) -> Optional[TaskRead]:
+        task = self._tasks.get(task_id)
+        return TaskRead(**vars(task)) if task else None
 
-        This method exists for future state transitions
-        when tasks live longer than a single request.
-        """
-        task.status = TaskStatus.completed
-        task.result = output
-        return task
+    def list_tasks(self, skip: int = 0, limit: int = 100) -> List[TaskRead]:
+        tasks = list(self._tasks.values())[skip : skip + limit]
+        return [TaskRead(**vars(t)) for t in tasks]
 
-    def fail_task(self, task: TaskRead, error: str) -> TaskRead:
-        """
-        Mark a task as failed.
+    def complete_task(self, task_id: str, result: Optional[Dict[str, Any]] = None) -> Optional[TaskRead]:
+        task = self._tasks.get(task_id)
+        if not task:
+            return None
+        task.status = "completed"
+        task.result = result or {}
+        task.completed_at = datetime.utcnow()
+        task.updated_at = datetime.utcnow()
+        return TaskRead(**vars(task))
 
-        Future use cases:
-        - Agent crashes
-        - Tool failures
-        - Validation errors
-        """
-        task.status = TaskStatus.failed
-        task.result = error
-        return task
+    def fail_task(self, task_id: str, error: str) -> Optional[TaskRead]:
+        task = self._tasks.get(task_id)
+        if not task:
+            return None
+        task.status = "failed"
+        task.result = {"error": error}
+        task.completed_at = datetime.utcnow()
+        task.updated_at = datetime.utcnow()
+        return TaskRead(**vars(task))

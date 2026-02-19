@@ -5,8 +5,10 @@ description = "Agentic AI MCP Platform"
 requires-python = ">=3.12"
 
 dependencies = [
-    "fastapi",
-    "uvicorn",
+    "fastapi>=0.101,<0.110",
+    "pydantic<2",
+    "typing-extensions>=4.15.0",
+    "uvicorn>=0.23",
 ]
 
 [tool.pytest.ini_options]
