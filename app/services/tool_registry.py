@@ -6,6 +6,7 @@ Runtime registry responsible for:
 - Discovery by agents and planners
 - Version awareness
 - Validation boundaries
+- Execution binding
 
 IMPORTANT:
 - This registry does NOT execute tools
@@ -18,7 +19,7 @@ Future replacements:
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Callable, Any
 
 
 @dataclass(frozen=True)
@@ -26,18 +27,7 @@ class ToolMetadata:
     """
     Immutable tool metadata contract.
 
-    This object is SAFE to share across:
-    - PlannerAgent
-    - Orchestrator
-    - Execution runtimes
-
-    Future extensions (NOT implemented):
-    - Input / output JSON schema
-    - Cost estimation
-    - Rate limits
-    - Required permissions
-    - Tool owner
-    - Tool category (llm, api, db, retrieval, etc.)
+    SAFE to expose to planners.
     """
 
     tool_id: str
@@ -46,29 +36,45 @@ class ToolMetadata:
     description: str
 
 
+@dataclass
+class RegisteredTool:
+    """
+    Internal runtime representation of a tool.
+
+    Contains:
+    - Metadata (safe)
+    - Execution binding (private to runtime)
+    - Optional argument schema
+    """
+
+    metadata: ToolMetadata
+    callable: Callable[..., Any]
+    input_schema: Optional[dict] = None
+
+
 class ToolRegistry:
     """
     In-memory tool registry.
 
     Architectural role:
-    - Acts as the source of truth for tool metadata
-    - Enables planners to reason about available tools
-    - Enables executors to validate tool existence
-
-    This registry is intentionally:
-    - Stateless across restarts
-    - Fast
-    - Replaceable
+    - Source of truth for tool metadata
+    - Provides execution bindings
+    - Enables validation and execution layers
     """
 
     def __init__(self) -> None:
-        self._tools: Dict[str, ToolMetadata] = {}
+        self._tools: Dict[str, RegisteredTool] = {}
 
     # --------------------------------------------------
     # Registration
     # --------------------------------------------------
 
-    def register_tool(self, metadata: ToolMetadata) -> None:
+    def register_tool(
+        self,
+        metadata: ToolMetadata,
+        tool_callable: Callable[..., Any],
+        input_schema: Optional[dict] = None,
+    ) -> None:
         """
         Register or update a tool definition.
 
@@ -76,10 +82,15 @@ class ToolRegistry:
         - If tool_id exists → replaced
         - If tool_id is new → inserted
         """
-        self._tools[metadata.tool_id] = metadata
+
+        self._tools[metadata.tool_id] = RegisteredTool(
+            metadata=metadata,
+            callable=tool_callable,
+            input_schema=input_schema,
+        )
 
     # --------------------------------------------------
-    # Retrieval
+    # Retrieval (Metadata)
     # --------------------------------------------------
 
     def get_tool(self, tool_id: str) -> Optional[ToolMetadata]:
@@ -90,7 +101,9 @@ class ToolRegistry:
         - ToolMetadata if found
         - None if tool does not exist
         """
-        return self._tools.get(tool_id)
+
+        tool = self._tools.get(tool_id)
+        return tool.metadata if tool else None
 
     def list_tools(self) -> List[ToolMetadata]:
         """
@@ -98,13 +111,35 @@ class ToolRegistry:
 
         Order is NOT guaranteed.
         """
-        return list(self._tools.values())
+
+        return [tool.metadata for tool in self._tools.values()]
 
     def has_tool(self, tool_id: str) -> bool:
         """
         Check whether a tool exists in the registry.
         """
+
         return tool_id in self._tools
+
+    # --------------------------------------------------
+    # Execution Binding
+    # --------------------------------------------------
+
+    def get_callable(self, tool_id: str) -> Optional[Callable[..., Any]]:
+        """
+        Retrieve execution callable for a tool.
+        """
+
+        tool = self._tools.get(tool_id)
+        return tool.callable if tool else None
+
+    def get_input_schema(self, tool_id: str) -> Optional[dict]:
+        """
+        Retrieve input schema for validation (optional).
+        """
+
+        tool = self._tools.get(tool_id)
+        return tool.input_schema if tool else None
 
     # --------------------------------------------------
     # Removal
@@ -116,4 +151,5 @@ class ToolRegistry:
 
         Silent if tool does not exist.
         """
+
         self._tools.pop(tool_id, None)
