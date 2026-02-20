@@ -8,6 +8,8 @@ Acts as the system conductor:
 - Does NOT know HOW things are implemented
 """
 
+from typing import Optional
+
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate, TaskRead
 from app.schemas.execution import ExecutionResult
@@ -19,22 +21,33 @@ from app.schemas.tool_call import ToolCall
 from app.services.agent_service import AgentService
 from app.services.task_service import TaskService
 from app.services.planner_agent import PlannerAgent
+from app.services.memory_writer import MemoryWriter
+from app.repositories.execution_history_repository import ExecutionHistoryRepository
+from app.repositories.execution_trace_repository import ExecutionTraceRepository
 
 
 class OrchestratorService:
     """
-    High-level workflow coordinator.
+    High-level workflow coordinator with optional logging and repositories.
     """
 
     def __init__(
         self,
         task_service: TaskService,
         agent_service: AgentService,
-        planner_agent: PlannerAgent | None = None,
+        planner_agent: Optional[PlannerAgent] = None,
+        memory_writer: Optional[MemoryWriter] = None,
+        execution_history_repository: Optional[ExecutionHistoryRepository] = None,
+        execution_trace_repository: Optional[ExecutionTraceRepository] = None,
     ) -> None:
         self._task_service = task_service
         self._agent_service = agent_service
         self._planner_agent = planner_agent or PlannerAgent()
+
+        # Optional logging/instrumentation
+        self._memory_writer = memory_writer
+        self._execution_history_repository = execution_history_repository
+        self._execution_trace_repository = execution_trace_repository
 
     # ==================================================
     # Public API
@@ -49,6 +62,10 @@ class OrchestratorService:
         plan = self._plan(agent, task_in, context)
         result = self._execute_plan(agent, task_in, plan, context)
 
+        # Optionally write execution history
+        if self._memory_writer:
+            self._memory_writer.write_history(task_in, result, context)
+
         return self._task_service.create(
             task_in=task_in,
             execution_result=result.dict(),
@@ -61,7 +78,13 @@ class OrchestratorService:
         context = AgentExecutionContext()
 
         plan = self._plan(agent, task_in, context)
-        return self._execute_plan(agent, task_in, plan, context)
+        result = self._execute_plan(agent, task_in, plan, context)
+
+        # Optionally write trace events
+        if self._memory_writer:
+            self._memory_writer.write_trace(context)
+
+        return result
 
     # ==================================================
     # Planning
@@ -73,11 +96,16 @@ class OrchestratorService:
         task_in: TaskCreate,
         context: AgentExecutionContext,
     ) -> ExecutionPlan:
-        return self._planner_agent.plan(
+        plan = self._planner_agent.plan(
             agent=agent,
             task=task_in,
             context=context,
         )
+
+        # Optionally record plan creation event
+        if self._memory_writer:
+            self._memory_writer.write_trace(context)
+        return plan
 
     # ==================================================
     # Validation
@@ -87,11 +115,9 @@ class OrchestratorService:
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
             if plan.steps:
                 raise ValueError("SINGLE_AGENT must not define steps")
-
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
             if not plan.steps or len(plan.steps) < 2:
                 raise ValueError("MULTI_AGENT requires at least two agents")
-
         else:
             raise ValueError(f"Unknown strategy: {plan.strategy}")
 
@@ -131,6 +157,10 @@ class OrchestratorService:
         tool_calls = raw_result.get("tool_calls", [])
         context.tool_calls.extend(ToolCall(**call) for call in tool_calls)
 
+        # Record execution trace
+        if self._memory_writer:
+            self._memory_writer.write_trace(context)
+
         return ExecutionResult(**raw_result)
 
     def _execute_multi_agent_sequential(
@@ -159,6 +189,10 @@ class OrchestratorService:
 
             final_result = ExecutionResult(**raw_result)
             current_input = final_result.output or ""
+
+            # Record intermediate trace
+            if self._memory_writer:
+                self._memory_writer.write_trace(context)
 
         if final_result is None:
             raise RuntimeError("Multi-agent execution produced no result")

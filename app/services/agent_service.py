@@ -5,12 +5,14 @@ Responsible for:
 - Executing agent logic
 - Declaring tool calls
 - Interacting with LLMs (later)
+- Recording execution trace
 
 Currently a deterministic stub.
 """
 
 from datetime import datetime, timezone
 from uuid import uuid4
+from typing import Dict, Any
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
@@ -26,31 +28,78 @@ class AgentService:
     Architectural role:
     - Stable execution boundary
     - Future tool-aware agent runtime
+    - Emits execution trace events
     """
+
+    # ==================================================
+    # Main Execution Entry Point
+    # ==================================================
 
     def execute(
         self,
         agent: AgentRead,
         task: TaskCreate,
         context: AgentExecutionContext | None = None,
-    ) -> dict:
+    ) -> Dict[str, Any]:
         """
         Execute a task using an agent.
 
-        IMPORTANT:
-        - Returns dict (execution payload)
-        - Tool calls are DECLARED, not executed
+        Returns:
+            dict execution payload
+
+        Tool calls are DECLARED, not executed.
         """
-        return {
-            "execution_id": str(uuid4()),
+
+        execution_id = str(uuid4())
+
+        # --------------------------------------------------
+        # Trace: agent started
+        # --------------------------------------------------
+
+        if context is not None:
+            context.add_trace(
+                event_type="agent_started",
+                payload={
+                    "execution_id": execution_id,
+                    "agent_id": agent.id,
+                    "agent_name": agent.name,
+                    "input": task.description,
+                },
+            )
+
+        # --------------------------------------------------
+        # Stub execution logic
+        # --------------------------------------------------
+
+        output = f"[STUB RESPONSE] Agent '{agent.name}' processed task."
+
+        result: Dict[str, Any] = {
+            "execution_id": execution_id,
             "agent_id": agent.id,
             "agent_name": agent.name,
             "input": task.description,
-            "output": f"[STUB RESPONSE] Agent '{agent.name}' processed task.",
+            "output": output,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            # Optional future field:
+            # Future:
             # "tool_calls": []
         }
+
+        # --------------------------------------------------
+        # Trace: agent finished
+        # --------------------------------------------------
+
+        if context is not None:
+            context.add_trace(
+                event_type="agent_finished",
+                payload={
+                    "execution_id": execution_id,
+                    "agent_id": agent.id,
+                    "agent_name": agent.name,
+                    "output": output,
+                },
+            )
+
+        return result
 
     # ==================================================
     # Tool Execution Hook (NOT USED YET)
@@ -62,17 +111,42 @@ class AgentService:
         context: AgentExecutionContext | None = None,
     ) -> ToolResult:
         """
-        Stub for tool execution.
+        Stub tool execution.
 
-        Actual execution will be handled by ToolExecutor later.
+        Future: delegated to ToolExecutor
         """
-        return ToolResult(
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        # Trace: tool started
+        if context is not None:
+            context.add_trace(
+                event_type="tool_started",
+                payload={
+                    "tool_id": tool_call.tool_id,
+                    "arguments": tool_call.arguments,
+                },
+            )
+
+        result = ToolResult(
             tool_id=tool_call.tool_id,
             success=True,
             output=f"[STUB] Tool '{tool_call.tool_id}' executed.",
             error=None,
             metadata={
                 "stub": True,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": timestamp,
             },
         )
+
+        # Trace: tool finished
+        if context is not None:
+            context.add_trace(
+                event_type="tool_finished",
+                payload={
+                    "tool_id": tool_call.tool_id,
+                    "success": True,
+                },
+            )
+
+        return result

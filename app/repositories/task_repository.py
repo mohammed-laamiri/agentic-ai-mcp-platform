@@ -1,7 +1,7 @@
 # app/repositories/task_repository.py
 
 from typing import Optional, List
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.models.task import Task
 
 
@@ -19,7 +19,8 @@ class TaskRepository:
         return self.session.get(Task, task_id)
 
     def list(self, skip: int = 0, limit: int = 100) -> List[Task]:
-        return self.session.exec(Task.select().offset(skip).limit(limit)).all()
+        statement = select(Task).offset(skip).limit(limit)
+        return self.session.exec(statement).all()
 
     def update(self, task: Task) -> Task:
         self.session.add(task)

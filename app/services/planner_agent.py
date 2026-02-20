@@ -8,6 +8,7 @@ This module implements:
 - SINGLE_AGENT for simple tasks
 - MULTI_AGENT (sequential) for complex tasks
 - Tool assignment hooks for future integration
+- Execution trace emission
 """
 
 from typing import List
@@ -28,7 +29,12 @@ class PlannerAgent:
     - Chooses execution strategy
     - Defines agent order
     - Declares tool calls (hooks only, no execution here)
+    - Emits planning trace events
     """
+
+    # ==================================================
+    # Public API
+    # ==================================================
 
     def plan(
         self,
@@ -44,7 +50,22 @@ class PlannerAgent:
         - Complex tasks: MULTI_AGENT (sequential)
         """
 
-        task_text = task.description.lower()
+        # --------------------------------------------------
+        # Trace: planning started
+        # --------------------------------------------------
+
+        if context is not None:
+            context.add_trace(
+                event_type="planning_started",
+                payload={
+                    "agent_id": agent.id,
+                    "agent_name": agent.name,
+                    "task_description": task.description,
+                },
+            )
+
+        task_text = (task.description or "").lower()
+
         is_complex = any(
             keyword in task_text
             for keyword in [
@@ -58,43 +79,87 @@ class PlannerAgent:
             ]
         )
 
+        # --------------------------------------------------
+        # MULTI_AGENT plan
+        # --------------------------------------------------
+
         if is_complex:
-            # Multi-agent sequential plan
+
             steps = self._assign_agents(task, lead_agent=agent)
-            return ExecutionPlan(
+
+            plan = ExecutionPlan(
                 strategy=ExecutionStrategy.MULTI_AGENT,
                 steps=steps,
                 reason="Task classified as complex; using sequential multi-agent execution",
             )
 
-        # Single-agent plan
-        return ExecutionPlan(
+            if context is not None:
+                context.add_trace(
+                    event_type="planning_completed",
+                    payload={
+                        "strategy": ExecutionStrategy.MULTI_AGENT.value,
+                        "agent_count": len(steps),
+                        "reason": plan.reason,
+                    },
+                )
+
+            return plan
+
+        # --------------------------------------------------
+        # SINGLE_AGENT plan
+        # --------------------------------------------------
+
+        plan = ExecutionPlan(
             strategy=ExecutionStrategy.SINGLE_AGENT,
             reason="Task classified as simple; using single-agent execution",
         )
 
-    # ------------------------------------------
-    # Tool assignment hooks (for future use)
-    # ------------------------------------------
-    def _assign_agents(self, task: TaskCreate, lead_agent: AgentRead) -> List[AgentRead]:
+        if context is not None:
+            context.add_trace(
+                event_type="planning_completed",
+                payload={
+                    "strategy": ExecutionStrategy.SINGLE_AGENT.value,
+                    "agent_count": 1,
+                    "reason": plan.reason,
+                },
+            )
+
+        return plan
+
+    # ==================================================
+    # Agent assignment
+    # ==================================================
+
+    def _assign_agents(
+        self,
+        task: TaskCreate,
+        lead_agent: AgentRead,
+    ) -> List[AgentRead]:
         """
         Assigns a sequence of agents to execute this task.
 
         Current behavior:
-        - Placeholder: uses the lead_agent twice
-        - Later: assign specialized agents, tool calls, or LLM-based agents
+        - Placeholder: uses lead_agent twice
+        - Later: assign specialized agents
         """
+
         return [lead_agent, lead_agent]
 
-    def _assign_tools(self, task: TaskCreate, agent: AgentRead) -> List[ToolCall]:
+    # ==================================================
+    # Tool assignment hook (future)
+    # ==================================================
+
+    def _assign_tools(
+        self,
+        task: TaskCreate,
+        agent: AgentRead,
+    ) -> List[ToolCall]:
         """
         Hook to assign tools to an agent.
 
-        Returns a list of ToolCall objects.
-
         IMPORTANT:
         - This does NOT execute tools
-        - Execution is handled later by the ToolExecutor
+        - Execution is handled later by ToolExecutor
         """
-        # Placeholder: no tools assigned yet
+
         return []
