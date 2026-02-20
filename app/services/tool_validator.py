@@ -3,22 +3,9 @@ Tool Validator.
 
 Responsible for validating tool calls BEFORE execution.
 
-Architectural role:
-- Enforces tool existence
-- Enforces argument contract
-- Prevents invalid runtime execution
-- Acts as safety boundary between Planner and Executor
-
-IMPORTANT:
-- Does NOT execute tools
-- Does NOT mutate tool calls
-- Does NOT handle retries
-
-Future extensions:
-- JSON Schema validation
-- Permission checks
-- Rate limiting
-- Cost estimation
+Validation layers:
+1. Tool existence
+2. Argument schema validation
 """
 
 from typing import Dict, Any
@@ -28,52 +15,93 @@ from app.services.tool_registry import ToolRegistry
 
 
 class ToolValidationError(Exception):
-    """
-    Raised when a tool call fails validation.
-    """
     pass
 
 
 class ToolValidator:
-    """
-    Validates tool calls before execution.
-    """
 
-    def __init__(self, tool_registry: ToolRegistry) -> None:
-        self._tool_registry = tool_registry
+    def __init__(self, registry: ToolRegistry):
+        self._registry = registry
 
     def validate(self, tool_call: ToolCall) -> None:
         """
-        Validate a ToolCall.
-
-        Raises:
-            ToolValidationError if validation fails.
+        Validate tool call against registry schema.
         """
 
         # --------------------------------------------------
-        # Validate tool exists
+        # Tool existence
         # --------------------------------------------------
 
-        if not self._tool_registry.has_tool(tool_call.tool_id):
+        if not self._registry.has_tool(tool_call.tool_id):
             raise ToolValidationError(
-                f"Tool '{tool_call.tool_id}' is not registered."
+                f"Tool '{tool_call.tool_id}' is not registered"
             )
 
         # --------------------------------------------------
-        # Validate arguments structure
+        # Schema validation
         # --------------------------------------------------
 
-        if not isinstance(tool_call.arguments, dict):
-            raise ToolValidationError(
-                "Tool arguments must be a dictionary."
-            )
+        schema = self._registry.get_input_schema(tool_call.tool_id)
 
-        # --------------------------------------------------
-        # Validate keys are strings
-        # --------------------------------------------------
+        if not schema:
+            return
 
-        for key in tool_call.arguments.keys():
-            if not isinstance(key, str):
+        self._validate_arguments(
+            tool_call.tool_id,
+            tool_call.arguments,
+            schema,
+        )
+
+    # --------------------------------------------------
+
+    def _validate_arguments(
+        self,
+        tool_id: str,
+        arguments: Dict[str, Any],
+        schema: Dict[str, Any],
+    ) -> None:
+
+        required = schema.get("required", [])
+        properties = schema.get("properties", {})
+
+        # Required check
+        for field in required:
+            if field not in arguments:
                 raise ToolValidationError(
-                    "Tool argument keys must be strings."
+                    f"Tool '{tool_id}' missing required argument '{field}'"
+                )
+
+        # Type check
+        for field, value in arguments.items():
+
+            expected = properties.get(field)
+
+            if not expected:
+                continue
+
+            expected_type = expected.get("type")
+
+            if expected_type == "string" and not isinstance(value, str):
+                raise ToolValidationError(
+                    f"Argument '{field}' must be string"
+                )
+
+            if expected_type == "integer" and not isinstance(value, int):
+                raise ToolValidationError(
+                    f"Argument '{field}' must be integer"
+                )
+
+            if expected_type == "number" and not isinstance(value, (int, float)):
+                raise ToolValidationError(
+                    f"Argument '{field}' must be number"
+                )
+
+            if expected_type == "boolean" and not isinstance(value, bool):
+                raise ToolValidationError(
+                    f"Argument '{field}' must be boolean"
+                )
+
+            if expected_type == "object" and not isinstance(value, dict):
+                raise ToolValidationError(
+                    f"Argument '{field}' must be object"
                 )

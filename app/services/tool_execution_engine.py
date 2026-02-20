@@ -5,6 +5,7 @@ Coordinates validation and execution of tool calls.
 
 Architectural role:
 - Validates tool calls
+- Resolves callable from ToolRegistry
 - Executes tools safely
 - Supports batch execution
 - Integrates with ExecutionRuntime
@@ -31,9 +32,22 @@ from app.services.tool_validator import (
 class ToolExecutionEngine:
     """
     High-level engine responsible for validating and executing tools.
+
+    Execution pipeline:
+
+        ToolCall
+           ↓
+        Validator
+           ↓
+        Registry callable resolution
+           ↓
+        Executor
+           ↓
+        ToolResult
     """
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
+
         self._tool_registry = tool_registry
         self._validator = ToolValidator(tool_registry)
         self._executor = ToolExecutor(tool_registry)
@@ -50,17 +64,56 @@ class ToolExecutionEngine:
     ) -> ToolResult:
         """
         Validate and execute a single tool call.
+
+        Callable resolution priority:
+
+        1. Explicit tool_fn (override)
+        2. Registry callable
+        3. Error if no callable exists
         """
 
         try:
 
-            # Validate first
+            # --------------------------------------------------
+            # Step 1: Validate tool existence and arguments
+            # --------------------------------------------------
+
             self._validator.validate(tool_call)
 
-            # Execute
+            # --------------------------------------------------
+            # Step 2: Resolve callable
+            # --------------------------------------------------
+
+            resolved_callable = tool_fn
+
+            if resolved_callable is None:
+
+                resolved_callable = self._tool_registry.get_callable(
+                    tool_call.tool_id
+                )
+
+                if resolved_callable is None:
+
+                    return ToolResult(
+                        tool_call_id=getattr(tool_call, "call_id", None),
+                        tool_id=tool_call.tool_id,
+                        status="error",
+                        output=None,
+                        error=(
+                            f"No callable registered for tool "
+                            f"'{tool_call.tool_id}'"
+                        ),
+                        started_at=None,
+                        finished_at=None,
+                    )
+
+            # --------------------------------------------------
+            # Step 3: Execute tool
+            # --------------------------------------------------
+
             result = self._executor.execute(
                 tool_call=tool_call,
-                tool_fn=tool_fn,
+                tool_fn=resolved_callable,
             )
 
             return result
@@ -77,8 +130,20 @@ class ToolExecutionEngine:
                 finished_at=None,
             )
 
+        except Exception as exc:
+
+            return ToolResult(
+                tool_call_id=getattr(tool_call, "call_id", None),
+                tool_id=tool_call.tool_id,
+                status="error",
+                output=None,
+                error=f"Execution engine failure: {str(exc)}",
+                started_at=None,
+                finished_at=None,
+            )
+
     # ==========================================================
-    # Batch execution (USED BY ExecutionRuntime)
+    # Batch execution
     # ==========================================================
 
     def execute_batch(
@@ -90,13 +155,11 @@ class ToolExecutionEngine:
         """
         Execute multiple tool calls safely.
 
-        Args:
-            tool_calls: list of ToolCall objects
-            context: execution context
-            fail_fast: stop execution on first failure
+        Execution guarantees:
 
-        Returns:
-            List of ToolResult
+        - Order preserved
+        - Validation enforced per tool
+        - Optional fail-fast behavior
         """
 
         results: List[ToolResult] = []
