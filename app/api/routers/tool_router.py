@@ -1,21 +1,29 @@
 """
 Tool API router.
 
-Exposes endpoints for managing tools in the registry:
+Exposes endpoints for:
 - Register
 - Get by ID
 - List all
+- Execute a tool (via ToolExecutionEngine)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List
+from typing import List, Optional
 
 from app.schemas.tool import ToolCreate, ToolRead
+from app.schemas.tool_call import ToolCall
+from app.schemas.tool_result import ToolResult
 from app.services.tool_registry import ToolRegistry
-from app.api.deps import get_tool_registry
+from app.services.tool_execution_engine import ToolExecutionEngine, ToolValidationError
+from app.api.deps import get_tool_registry, get_tool_execution_engine
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 
+
+# -------------------------
+# CRUD Endpoints
+# -------------------------
 
 @router.post("/", response_model=ToolRead, status_code=status.HTTP_201_CREATED)
 def register_tool(
@@ -25,17 +33,11 @@ def register_tool(
     """
     Register a new tool or update an existing one.
     """
-    metadata = registry.register_tool(
-        metadata=tool_in  # will adjust mapping in registry if needed
+    # Map ToolCreate → ToolMetadata
+    registry.register_tool(
+        metadata=tool_in  # ToolRegistry supports dataclass or pydantic model
     )
-
-    # Return read-only representation
-    return ToolRead(
-        tool_id=tool_in.tool_id,
-        name=tool_in.name,
-        version=tool_in.version,
-        description=tool_in.description,
-    )
+    return ToolRead(**tool_in.model_dump())
 
 
 @router.get("/{tool_id}", response_model=ToolRead)
@@ -49,13 +51,7 @@ def get_tool(
     tool = registry.get_tool(tool_id)
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
-
-    return ToolRead(
-        tool_id=tool.tool_id,
-        name=tool.name,
-        version=tool.version,
-        description=tool.description,
-    )
+    return ToolRead(**tool.__dict__)
 
 
 @router.get("/", response_model=List[ToolRead])
@@ -63,13 +59,30 @@ def list_tools(registry: ToolRegistry = Depends(get_tool_registry)) -> List[Tool
     """
     List all registered tools.
     """
-    tools = registry.list_tools()
-    return [
-        ToolRead(
-            tool_id=t.tool_id,
-            name=t.name,
-            version=t.version,
-            description=t.description,
+    return [ToolRead(**t.__dict__) for t in registry.list_tools()]
+
+
+# -------------------------
+# Execution Endpoint
+# -------------------------
+
+@router.post("/execute", response_model=ToolResult)
+def execute_tool(
+    tool_call: ToolCall,
+    engine: ToolExecutionEngine = Depends(get_tool_execution_engine),
+) -> ToolResult:
+    """
+    Execute a registered tool via ToolExecutionEngine.
+    """
+    try:
+        return engine.execute(tool_call)
+    except ToolValidationError as exc:
+        return ToolResult(
+            tool_call_id=getattr(tool_call, "call_id", None),
+            tool_id=tool_call.tool_id,
+            status="error",
+            output=None,
+            error=str(exc),
+            started_at=None,
+            finished_at=None,
         )
-        for t in tools
-    ]
