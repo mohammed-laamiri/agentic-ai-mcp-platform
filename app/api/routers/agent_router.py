@@ -1,5 +1,10 @@
+"""
+Agent API router.
+
+Exposes endpoints for executing tasks directly via agents.
+"""
+
 from fastapi import APIRouter, Depends
-from typing import List
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
@@ -19,16 +24,8 @@ def execute_agent(
     """
     Execute a task using an agent and return structured ExecutionResult.
 
-    Minimal placeholder logic for MVP.
+    Note:
+    - This endpoint does NOT persist the task.
+    - Intended for direct agent execution calls.
     """
     return orchestrator.execute(agent=agent, task_in=task_in)
-
-
-@router.get("/", response_model=List[AgentRead])
-def list_agents(
-    orchestrator: OrchestratorService = Depends(get_orchestrator),
-) -> List[AgentRead]:
-    """
-    List all available agents.
-    """
-    return orchestrator.list_agents()

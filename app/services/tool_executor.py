@@ -2,6 +2,19 @@
 Tool Executor.
 
 Responsible for executing a single tool invocation at runtime.
+
+Architectural role:
+- Runtime execution boundary for tools
+- Enforces execution contract
+- Isolated from orchestration and planning
+- Fetches metadata and callable from ToolRegistry
+
+Supports:
+- Future timeouts
+- Retries
+- Sandboxing
+- Cost tracking
+- Observability hooks
 """
 
 from datetime import datetime, timezone
@@ -15,6 +28,10 @@ from app.services.tool_registry import ToolRegistry
 class ToolExecutor:
     """
     Executes tools in a controlled runtime environment.
+
+    IMPORTANT:
+    - Executes ONE tool call at a time
+    - Stateless by design
     """
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
@@ -27,12 +44,23 @@ class ToolExecutor:
     ) -> ToolResult:
         """
         Execute a tool function or a registered tool by ID.
+
+        Args:
+            tool_call: Structured tool invocation request
+            tool_fn: Optional override callable (mainly for testing)
+
+        Returns:
+            ToolResult
         """
 
         start_time = datetime.now(timezone.utc)
 
+        # --------------------------------------------------
         # Fetch metadata
+        # --------------------------------------------------
+
         tool_meta = self._tool_registry.get_tool(tool_call.tool_id)
+
         if tool_meta is None:
             return ToolResult(
                 tool_call_id=getattr(tool_call, "call_id", None),
@@ -44,7 +72,10 @@ class ToolExecutor:
                 finished_at=datetime.now(timezone.utc),
             )
 
+        # --------------------------------------------------
         # Resolve callable
+        # --------------------------------------------------
+
         if tool_fn is None:
             tool_fn = self._tool_registry.get_callable(tool_call.tool_id)
 
@@ -59,12 +90,16 @@ class ToolExecutor:
                 finished_at=datetime.now(timezone.utc),
             )
 
+        # --------------------------------------------------
         # Execute safely
+        # --------------------------------------------------
+
         try:
             output = tool_fn(**tool_call.arguments)
             status = "success"
             error = None
-        except Exception as exc:
+
+        except Exception as exc:  # noqa: BLE001
             output = None
             status = "error"
             error = str(exc)

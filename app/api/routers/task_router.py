@@ -1,5 +1,10 @@
+"""
+Task API router.
+
+Exposes endpoints to run tasks using agents.
+"""
+
 from fastapi import APIRouter, Depends
-from typing import List
 
 from app.schemas.task import TaskCreate, TaskRead
 from app.schemas.agent import AgentRead
@@ -18,16 +23,4 @@ def run_task(
     """
     Run a task using a selected agent.
     """
-    # Minimal placeholder logic
     return orchestrator.run(agent=agent, task_in=task_in)
-
-
-@router.get("/", response_model=List[TaskRead])
-def list_tasks(
-    orchestrator: OrchestratorService = Depends(get_orchestrator),
-) -> List[TaskRead]:
-    """
-    List all tasks.
-    """
-    # Minimal placeholder logic
-    return orchestrator.list_tasks()

@@ -1,88 +1,165 @@
 """
 Tool API router.
 
-Exposes endpoints for:
-- Register
-- Get by ID
-- List all
-- Execute a tool (via ToolExecutionEngine)
+Exposes endpoints for managing tools in the registry:
+- Register metadata
+- Get metadata
+- List tools
+- Execute tools (MVP critical endpoint)
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List, Optional
+from typing import List, Dict, Any
 
 from app.schemas.tool import ToolCreate, ToolRead
-from app.schemas.tool_call import ToolCall
-from app.schemas.tool_result import ToolResult
-from app.services.tool_registry import ToolRegistry
-from app.services.tool_execution_engine import ToolExecutionEngine, ToolValidationError
-from app.api.deps import get_tool_registry, get_tool_execution_engine
+from app.services.tool_registry import ToolRegistry, ToolMetadata
+from app.services.tool_execution_engine import ToolExecutionEngine
+
+from app.api.deps import (
+    get_tool_registry,
+    get_tool_execution_engine,
+)
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 
 
-# -------------------------
-# CRUD Endpoints
-# -------------------------
+# =====================================================
+# Register Tool Metadata
+# =====================================================
 
-@router.post("/", response_model=ToolRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=ToolRead,
+    status_code=status.HTTP_201_CREATED,
+)
 def register_tool(
     tool_in: ToolCreate,
     registry: ToolRegistry = Depends(get_tool_registry),
 ) -> ToolRead:
     """
-    Register a new tool or update an existing one.
+    Register or update tool metadata.
+
+    NOTE:
+    - Callable binding is handled separately
+    - This endpoint registers metadata only
     """
-    # Map ToolCreate → ToolMetadata
-    registry.register_tool(
-        metadata=tool_in  # ToolRegistry supports dataclass or pydantic model
+
+    metadata = ToolMetadata(
+        tool_id=tool_in.tool_id,
+        name=tool_in.name,
+        version=tool_in.version,
+        description=tool_in.description,
+        input_schema=getattr(tool_in, "input_schema", None),
     )
-    return ToolRead(**tool_in.model_dump())
+
+    registry.register_tool(metadata)
+
+    return ToolRead(
+        tool_id=metadata.tool_id,
+        name=metadata.name,
+        version=metadata.version,
+        description=metadata.description,
+    )
 
 
-@router.get("/{tool_id}", response_model=ToolRead)
+# =====================================================
+# Get Tool Metadata
+# =====================================================
+
+@router.get(
+    "/{tool_id}",
+    response_model=ToolRead,
+)
 def get_tool(
     tool_id: str,
     registry: ToolRegistry = Depends(get_tool_registry),
 ) -> ToolRead:
     """
-    Retrieve tool metadata by tool ID.
+    Retrieve tool metadata by ID.
     """
+
     tool = registry.get_tool(tool_id)
+
     if tool is None:
-        raise HTTPException(status_code=404, detail="Tool not found")
-    return ToolRead(**tool.__dict__)
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool '{tool_id}' not found",
+        )
+
+    return ToolRead(
+        tool_id=tool.tool_id,
+        name=tool.name,
+        version=tool.version,
+        description=tool.description,
+    )
 
 
-@router.get("/", response_model=List[ToolRead])
-def list_tools(registry: ToolRegistry = Depends(get_tool_registry)) -> List[ToolRead]:
+# =====================================================
+# List Tools
+# =====================================================
+
+@router.get(
+    "/",
+    response_model=List[ToolRead],
+)
+def list_tools(
+    registry: ToolRegistry = Depends(get_tool_registry),
+) -> List[ToolRead]:
     """
     List all registered tools.
     """
-    return [ToolRead(**t.__dict__) for t in registry.list_tools()]
+
+    tools = registry.list_tools()
+
+    return [
+        ToolRead(
+            tool_id=t.tool_id,
+            name=t.name,
+            version=t.version,
+            description=t.description,
+        )
+        for t in tools
+    ]
 
 
-# -------------------------
-# Execution Endpoint
-# -------------------------
+# =====================================================
+# Execute Tool (MVP CRITICAL ENDPOINT)
+# =====================================================
 
-@router.post("/execute", response_model=ToolResult)
+@router.post(
+    "/{tool_id}/execute",
+)
 def execute_tool(
-    tool_call: ToolCall,
+    tool_id: str,
+    payload: Dict[str, Any],
     engine: ToolExecutionEngine = Depends(get_tool_execution_engine),
-) -> ToolResult:
+):
     """
-    Execute a registered tool via ToolExecutionEngine.
+    Execute a registered tool.
+
+    MVP version:
+    - No persistence
+    - No retries
+    - No timeouts
+    - Direct execution only
     """
+
     try:
-        return engine.execute(tool_call)
-    except ToolValidationError as exc:
-        return ToolResult(
-            tool_call_id=getattr(tool_call, "call_id", None),
-            tool_id=tool_call.tool_id,
-            status="error",
-            output=None,
-            error=str(exc),
-            started_at=None,
-            finished_at=None,
+
+        result = engine.execute(
+            tool_id=tool_id,
+            arguments=payload,
+        )
+
+        return {
+            "tool_id": tool_id,
+            "success": True,
+            "output": result,
+        }
+
+    except Exception as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
         )

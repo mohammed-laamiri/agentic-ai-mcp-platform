@@ -23,17 +23,33 @@ from app.api.routers.tool_router import router as tool_router
 from app.services.tool_registry import ToolRegistry, ToolMetadata
 from app.services.tool_execution_engine import ToolExecutionEngine
 
+# MVP tool functions
+from app.mvp_tools import echo_tool, sum_tool
+
 tool_registry = ToolRegistry()
 tool_execution_engine = ToolExecutionEngine(tool_registry)
 
-# Register first real tool
+# -------------------------
+# Register MVP tools
+# -------------------------
 tool_registry.register_tool(
     ToolMetadata(
-        tool_id="echo",
+        tool_id="echo_tool",
         name="Echo Tool",
         version="1.0.0",
         description="Returns input arguments as output",
-    )
+    ),
+    callable_fn=echo_tool,
+)
+
+tool_registry.register_tool(
+    ToolMetadata(
+        tool_id="sum_tool",
+        name="Sum Tool",
+        version="1.0.0",
+        description="Adds two numbers: expects 'a' and 'b'",
+    ),
+    callable_fn=sum_tool,
 )
 
 
