@@ -23,7 +23,7 @@ from chromadb.config import Settings
 
 class RAGService:
     """
-    Minimal Chroma-based retrieval service.
+    Minimal Chroma-based retrieval service compatible with RAG router.
     """
 
     def __init__(
@@ -55,7 +55,6 @@ class RAGService:
         """
         Add a document to the vector store.
         """
-
         doc_id = document_id or str(uuid.uuid4())
 
         self._collection.add(
@@ -73,7 +72,6 @@ class RAGService:
         """
         Add multiple documents.
         """
-
         ids = [str(uuid.uuid4()) for _ in documents]
 
         self._collection.add(
@@ -82,6 +80,22 @@ class RAGService:
         )
 
         return ids
+
+    # =====================================================
+    # Router-compatible aliases
+    # =====================================================
+
+    def ingest(self, document_id: str, text: str) -> str:
+        """
+        Ingest a single document (used by RAG router).
+        """
+        return self.add_document(content=text, document_id=document_id)
+
+    def query(self, query: str, k: int = 3) -> list[str]:
+        """
+        Query top-k documents (used by RAG router).
+        """
+        return self.retrieve(query=query, top_k=k)
 
     # =====================================================
     # Retrieval
@@ -95,7 +109,6 @@ class RAGService:
         """
         Retrieve most relevant documents.
         """
-
         results = self._collection.query(
             query_texts=[query],
             n_results=top_k,

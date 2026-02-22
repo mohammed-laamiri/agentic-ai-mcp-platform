@@ -18,6 +18,8 @@ from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
 
+from app.services.rag.rag_service import RAGService
+
 
 class AgentService:
     """
@@ -27,6 +29,14 @@ class AgentService:
     - Stable execution boundary
     - Future tool-aware agent runtime
     """
+
+    def __init__(self, rag_service: RAGService | None = None) -> None:
+        """
+        Inject RAG service.
+
+        Optional for backward compatibility.
+        """
+        self._rag_service = rag_service
 
     def execute(
         self,
@@ -41,15 +51,39 @@ class AgentService:
         - Returns dict (execution payload)
         - Tool calls are DECLARED, not executed
         """
+
+        # --------------------------------------------------
+        # Retrieve RAG context (if available)
+        # --------------------------------------------------
+
+        rag_context = []
+
+        if self._rag_service:
+            rag_context = self._rag_service.retrieve(
+                query=task.description,
+                top_k=3,
+            )
+
+        context_text = "\n".join(rag_context) if rag_context else "No RAG context."
+
+        # --------------------------------------------------
+        # Build response
+        # --------------------------------------------------
+
+        output = (
+            f"[AGENT RESPONSE]\n"
+            f"Agent: {agent.name}\n\n"
+            f"Task:\n{task.description}\n\n"
+            f"Retrieved Context:\n{context_text}"
+        )
+
         return {
             "execution_id": str(uuid4()),
             "agent_id": agent.id,
             "agent_name": agent.name,
             "input": task.description,
-            "output": f"[STUB RESPONSE] Agent '{agent.name}' processed task.",
+            "output": output,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            # Optional future field:
-            # "tool_calls": []
         }
 
     # ==================================================

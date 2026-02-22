@@ -30,11 +30,16 @@ class OrchestratorService:
         self,
         task_service: TaskService,
         agent_service: AgentService,
-        planner_agent: PlannerAgent | None = None,
+        planner_agent: PlannerAgent,
     ) -> None:
+        """
+        Orchestrator requires a fully configured PlannerAgent.
+
+        This prevents hidden dependencies and keeps architecture explicit.
+        """
         self._task_service = task_service
         self._agent_service = agent_service
-        self._planner_agent = planner_agent or PlannerAgent()
+        self._planner_agent = planner_agent
 
     # ==================================================
     # Public API

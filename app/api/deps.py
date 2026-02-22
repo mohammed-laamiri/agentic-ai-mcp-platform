@@ -34,6 +34,17 @@ def get_app_settings() -> Settings:
 
 
 # =====================================================
+# RAG Service Singleton (CREATE ONLY ONCE)
+# =====================================================
+
+rag_service = RAGService()
+
+
+def get_rag_service() -> RAGService:
+    return rag_service
+
+
+# =====================================================
 # Core Domain Services
 # =====================================================
 
@@ -42,11 +53,15 @@ def get_task_service() -> TaskService:
 
 
 def get_agent_service() -> AgentService:
-    return AgentService()
+    return AgentService(
+        rag_service=get_rag_service(),
+    )
 
 
 def get_planner_agent() -> PlannerAgent:
-    return PlannerAgent()
+    return PlannerAgent(
+        rag_service=get_rag_service(),
+    )
 
 
 def get_orchestrator() -> OrchestratorService:
@@ -67,13 +82,3 @@ def get_tool_registry() -> ToolRegistry:
 
 def get_tool_execution_engine() -> ToolExecutionEngine:
     return tool_execution_engine
-
-# =====================================================
-# RAG Service Singleton
-# =====================================================
-
-rag_service = RAGService()
-
-
-def get_rag_service() -> RAGService:
-    return rag_service
