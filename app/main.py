@@ -21,6 +21,7 @@ from app.api.routers import health_router, task_router
 from app.api.routers.agent_router import router as agent_router
 from app.api.routers.tool_router import router as tool_router
 from app.api.routers.rag_router import router as rag_router
+from app.api.routers.demo_router import router as demo_router
 
 # IMPORTANT:
 # This initializes runtime singletons (tool_registry, tool_execution_engine, etc.)
@@ -78,6 +79,12 @@ def create_app() -> FastAPI:
         tool_router,
         prefix="/api",
         tags=["Tools"],
+    )
+
+    app.include_router(
+        demo_router,
+        prefix="/api",
+        tags=["Demo"],
     )
 
     return app

@@ -4,42 +4,39 @@ Tool result schema.
 Represents the outcome of a tool execution.
 
 Returned by:
-- Tool executors
-- Runtime engines
+- ToolExecutor
+- ToolExecutionEngine
 """
 
-from typing import Any, Dict, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Optional
+from datetime import datetime
+from pydantic import BaseModel
 
 
 class ToolResult(BaseModel):
     """
-    Result of a tool execution.
+    Canonical result of tool execution.
 
-    This object is SAFE to store, log, and return.
+    This is the runtime contract between:
+    - Executor
+    - Engine
+    - Orchestrator
+    - API layer
     """
 
-    tool_id: str = Field(
-        ...,
-        description="ID of the executed tool",
-    )
+    tool_call_id: Optional[str] = None
 
-    success: bool = Field(
-        ...,
-        description="Whether the tool execution succeeded",
-    )
+    tool_id: str
 
-    output: Optional[Any] = Field(
-        default=None,
-        description="Tool output payload",
-    )
+    # execution state
+    status: str  # "success" | "error"
 
-    error: Optional[str] = Field(
-        default=None,
-        description="Error message if execution failed",
-    )
+    # tool output
+    output: Optional[Any] = None
 
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Execution metadata (latency, cost, retries, etc.)",
-    )
+    # error message (if failed)
+    error: Optional[str] = None
+
+    # observability
+    started_at: datetime
+    finished_at: datetime
