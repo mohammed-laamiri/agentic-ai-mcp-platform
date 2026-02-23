@@ -6,7 +6,7 @@ Coordinates validation and execution of tool calls.
 Architectural role:
 - Validates tool calls
 - Resolves callable from ToolRegistry
-- Executes tools safely
+- Executes tools safely using ToolExecutor
 - Supports batch execution
 - Integrates with ExecutionRuntime
 
@@ -16,6 +16,7 @@ IMPORTANT:
 """
 
 from typing import List, Optional, Callable, Any
+from datetime import datetime, timezone
 
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
@@ -23,10 +24,7 @@ from app.schemas.agent_execution_context import AgentExecutionContext
 
 from app.services.tool_registry import ToolRegistry
 from app.services.tool_executor import ToolExecutor
-from app.services.tool_validator import (
-    ToolValidator,
-    ToolValidationError,
-)
+from app.services.tool_validator import ToolValidator, ToolValidationError
 
 
 class ToolExecutionEngine:
@@ -47,7 +45,6 @@ class ToolExecutionEngine:
     """
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
-
         self._tool_registry = tool_registry
         self._validator = ToolValidator(tool_registry)
         self._executor = ToolExecutor(tool_registry)
@@ -62,84 +59,73 @@ class ToolExecutionEngine:
         context: Optional[AgentExecutionContext] = None,
         tool_fn: Optional[Callable[..., Any]] = None,
     ) -> ToolResult:
-        """
-        Validate and execute a single tool call.
-
-        Callable resolution priority:
-
-        1. Explicit tool_fn (override)
-        2. Registry callable
-        3. Error if no callable exists
-        """
+        start_time = datetime.now(timezone.utc)
+        finished_time = start_time
 
         try:
-
-            # --------------------------------------------------
+            # -------------------------------
             # Step 1: Validate tool existence and arguments
-            # --------------------------------------------------
-
+            # -------------------------------
             self._validator.validate(tool_call)
 
-            # --------------------------------------------------
+            # -------------------------------
             # Step 2: Resolve callable
-            # --------------------------------------------------
-
-            resolved_callable = tool_fn
+            # -------------------------------
+            resolved_callable = tool_fn or self._tool_registry.get_callable(tool_call.tool_id)
 
             if resolved_callable is None:
-
-                resolved_callable = self._tool_registry.get_callable(
-                    tool_call.tool_id
+                finished_time = datetime.now(timezone.utc)
+                return ToolResult(
+                    tool_call_id=getattr(tool_call, "call_id", None),
+                    tool_id=tool_call.tool_id,
+                    status="error",
+                    output=None,
+                    error=f"No callable registered for tool '{tool_call.tool_id}'",
+                    started_at=start_time,
+                    finished_at=finished_time,
                 )
 
-                if resolved_callable is None:
+            # -------------------------------
+            # Step 3: Execute via ToolExecutor
+            # -------------------------------
+            result = self._executor.execute(tool_call, tool_fn=resolved_callable)
 
-                    return ToolResult(
-                        tool_call_id=getattr(tool_call, "call_id", None),
-                        tool_id=tool_call.tool_id,
-                        status="error",
-                        output=None,
-                        error=(
-                            f"No callable registered for tool "
-                            f"'{tool_call.tool_id}'"
-                        ),
-                        started_at=None,
-                        finished_at=None,
-                    )
-
-            # --------------------------------------------------
-            # Step 3: Execute tool
-            # --------------------------------------------------
-
-            result = self._executor.execute(
-                tool_call=tool_call,
-                tool_fn=resolved_callable,
-            )
+            # Ensure all required fields exist for Pydantic
+            if result.started_at is None:
+                result.started_at = start_time
+            if result.finished_at is None:
+                result.finished_at = datetime.now(timezone.utc)
+            if not hasattr(result, "status") or result.status is None:
+                result.status = "success" if result.output is not None else "error"
+            if not hasattr(result, "output"):
+                result.output = None
+            if not hasattr(result, "error"):
+                result.error = None
 
             return result
 
         except ToolValidationError as exc:
-
+            finished_time = datetime.now(timezone.utc)
             return ToolResult(
                 tool_call_id=getattr(tool_call, "call_id", None),
                 tool_id=tool_call.tool_id,
                 status="error",
                 output=None,
                 error=str(exc),
-                started_at=None,
-                finished_at=None,
+                started_at=start_time,
+                finished_at=finished_time,
             )
 
         except Exception as exc:
-
+            finished_time = datetime.now(timezone.utc)
             return ToolResult(
                 tool_call_id=getattr(tool_call, "call_id", None),
                 tool_id=tool_call.tool_id,
                 status="error",
                 output=None,
                 error=f"Execution engine failure: {str(exc)}",
-                started_at=None,
-                finished_at=None,
+                started_at=start_time,
+                finished_at=finished_time,
             )
 
     # ==========================================================
@@ -152,27 +138,11 @@ class ToolExecutionEngine:
         context: Optional[AgentExecutionContext] = None,
         fail_fast: bool = True,
     ) -> List[ToolResult]:
-        """
-        Execute multiple tool calls safely.
-
-        Execution guarantees:
-
-        - Order preserved
-        - Validation enforced per tool
-        - Optional fail-fast behavior
-        """
-
         results: List[ToolResult] = []
 
         for tool_call in tool_calls:
-
-            result = self.execute(
-                tool_call=tool_call,
-                context=context,
-            )
-
+            result = self.execute(tool_call, context=context)
             results.append(result)
-
             if fail_fast and result.status == "error":
                 break
 

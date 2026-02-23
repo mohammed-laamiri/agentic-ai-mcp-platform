@@ -71,6 +71,7 @@ class AgentService:
         # --------------------------------------------------
 
         output = (
+            f"[STUB RESPONSE]\n"
             f"[AGENT RESPONSE]\n"
             f"Agent: {agent.name}\n\n"
             f"Task:\n{task.description}\n\n"
