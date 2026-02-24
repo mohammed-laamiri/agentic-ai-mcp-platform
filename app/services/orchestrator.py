@@ -20,8 +20,6 @@ from app.schemas.tool_result import ToolResult
 from app.services.agent_service import AgentService
 from app.services.task_service import TaskService
 from app.services.planner_agent import PlannerAgent
-
-# NEW — safe import
 from app.services.v1.multi_agent import MultiAgentExecutor
 
 from app.runtime.runtime import tool_execution_engine
@@ -45,11 +43,12 @@ class OrchestratorService:
         agent_service: AgentService,
         planner_agent: PlannerAgent,
     ) -> None:
+
         self._task_service = task_service
         self._agent_service = agent_service
         self._planner_agent = planner_agent
 
-        # NEW — initialize multi-agent executor safely
+        # Multi-agent execution engine
         self._multi_agent_executor = MultiAgentExecutor(
             agent_service=self._agent_service
         )
@@ -58,13 +57,22 @@ class OrchestratorService:
     # Public API
     # ==================================================
 
-    def run(self, agent: AgentRead, task_in: TaskCreate) -> TaskRead:
+    def run(
+        self,
+        agent: AgentRead,
+        task_in: TaskCreate,
+    ) -> TaskRead:
         """
         Execute task and persist result.
         """
+
         context = AgentExecutionContext()
 
-        plan = self._plan(agent, task_in, context)
+        plan = self._plan(
+            agent=agent,
+            task_in=task_in,
+            context=context,
+        )
 
         result = self._execute_plan(
             original_agent=agent,
@@ -78,13 +86,22 @@ class OrchestratorService:
             execution_result=result.dict(),
         )
 
-    def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
+    def execute(
+        self,
+        agent: AgentRead,
+        task_in: TaskCreate,
+    ) -> ExecutionResult:
         """
         Execute task without persistence.
         """
+
         context = AgentExecutionContext()
 
-        plan = self._plan(agent, task_in, context)
+        plan = self._plan(
+            agent=agent,
+            task_in=task_in,
+            context=context,
+        )
 
         return self._execute_plan(
             original_agent=agent,
@@ -106,6 +123,7 @@ class OrchestratorService:
         """
         Request execution plan from PlannerAgent.
         """
+
         return self._planner_agent.plan(
             agent=agent,
             task=task_in,
@@ -116,21 +134,32 @@ class OrchestratorService:
     # Plan Validation
     # ==================================================
 
-    def _validate_plan(self, plan: ExecutionPlan) -> None:
+    def _validate_plan(
+        self,
+        plan: ExecutionPlan,
+    ) -> None:
+
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+
             if not plan.steps or len(plan.steps) != 1:
+
                 raise ValueError(
                     "SINGLE_AGENT execution requires exactly one agent step"
                 )
 
         elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
+
             if not plan.steps or len(plan.steps) < 2:
+
                 raise ValueError(
                     "MULTI_AGENT execution requires at least two agent steps"
                 )
 
         else:
-            raise ValueError(f"Unknown execution strategy: {plan.strategy}")
+
+            raise ValueError(
+                f"Unknown execution strategy: {plan.strategy}"
+            )
 
     # ==================================================
     # Execution Dispatcher
@@ -146,23 +175,28 @@ class OrchestratorService:
         """
         Dispatch execution based on strategy.
         """
+
         self._validate_plan(plan)
 
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+
             return self._execute_single_agent(
                 agent=plan.steps[0],
                 task_in=original_task,
                 context=context,
             )
 
-        if plan.strategy == ExecutionStrategy.MULTI_AGENT:
-            return self._execute_multi_agent_sequential(
+        elif plan.strategy == ExecutionStrategy.MULTI_AGENT:
+
+            return self._execute_multi_agent(
                 plan=plan,
                 task_in=original_task,
                 context=context,
             )
 
-        raise ValueError(f"Unsupported execution strategy: {plan.strategy}")
+        raise ValueError(
+            f"Unsupported execution strategy: {plan.strategy}"
+        )
 
     # ==================================================
     # Execution Strategies
@@ -177,37 +211,38 @@ class OrchestratorService:
         """
         Execute single agent.
         """
+
         raw_result = self._agent_service.execute(
             agent=agent,
             task=task_in,
             context=context,
         )
 
-        self._collect_tool_calls(raw_result, context)
+        self._collect_tool_calls(
+            raw_result=raw_result,
+            context=context,
+        )
+
         self._execute_tools(context)
 
         return ExecutionResult(**raw_result)
 
-    def _execute_multi_agent_sequential(
+    def _execute_multi_agent(
         self,
         plan: ExecutionPlan,
         task_in: TaskCreate,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
         """
-        SAFE delegation to MultiAgentExecutor.
-
-        This keeps orchestrator clean and prevents duplication.
+        Delegate multi-agent execution safely.
         """
 
-        # Delegate execution
         result = self._multi_agent_executor.execute(
             agents=plan.steps,
-            task=task_in,
+            task=task_in,   # ✅ FIXED PARAM NAME
             context=context,
         )
 
-        # Tools may still need execution depending on agent output
         self._execute_tools(context)
 
         return result
@@ -221,15 +256,20 @@ class OrchestratorService:
         raw_result: dict,
         context: AgentExecutionContext,
     ) -> None:
+
         tool_calls = raw_result.get("tool_calls", [])
 
         for call in tool_calls:
 
             if isinstance(call, ToolCall):
+
                 context.add_tool_call(call)
 
             elif isinstance(call, dict):
-                context.add_tool_call(ToolCall(**call))
+
+                context.add_tool_call(
+                    ToolCall(**call)
+                )
 
     # ==================================================
     # Tool Execution
@@ -240,14 +280,15 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> None:
         """
-        Execute all pending tool calls using singleton runtime engine.
+        Execute pending tool calls.
         """
 
         for tool_call in context.tool_calls:
 
-            result: ToolResult = tool_execution_engine.execute(tool_call)
+            result: ToolResult = tool_execution_engine.execute(
+                tool_call
+            )
 
             context.add_tool_result(result)
 
-        # Clear executed calls
         context.tool_calls.clear()
