@@ -71,12 +71,18 @@ class AgentExecutionContext(BaseModel):
 
     tool_calls: Annotated[
         List[ToolCall],
-        Field(default_factory=list, description="Tool calls issued during execution"),
+        Field(
+            default_factory=list,
+            description="Tool calls issued during execution",
+        ),
     ]
 
     tool_results: Annotated[
         List[ToolResult],
-        Field(default_factory=list, description="Tool results produced during execution"),
+        Field(
+            default_factory=list,
+            description="Tool results produced during execution",
+        ),
     ]
 
     # ==========================================================
@@ -85,8 +91,16 @@ class AgentExecutionContext(BaseModel):
 
     metadata: Annotated[
         Dict[str, Any],
-        Field(default_factory=dict, description="Execution metadata"),
+        Field(
+            default_factory=dict,
+            description="Execution metadata",
+        ),
     ]
+
+    final_output: Optional[str] = Field(
+        default=None,
+        description="Final output produced by execution",
+    )
 
     # ==========================================================
     # Safe helper methods (Orchestrator-owned mutations)
@@ -99,6 +113,10 @@ class AgentExecutionContext(BaseModel):
     def add_tool_result(self, tool_result: ToolResult) -> None:
         """Register a tool result in execution trace."""
         self.tool_results.append(tool_result)
+
+    def set_final_output(self, output: str) -> None:
+        """Store final execution output."""
+        self.final_output = output
 
     def mark_completed(self) -> None:
         """Mark execution as completed."""
