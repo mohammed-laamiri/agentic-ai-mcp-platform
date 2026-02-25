@@ -4,7 +4,7 @@ MultiAgentExecutor
 Executes multiple agents sequentially using shared execution context.
 """
 
-from typing import List
+from typing import List, Optional
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
@@ -22,6 +22,7 @@ class MultiAgentExecutor:
     - Execute agents in order
     - Pass output of previous agent to next agent
     - Maintain shared execution context
+    - Store final output in context
     - Return final ExecutionResult
     """
 
@@ -47,28 +48,40 @@ class MultiAgentExecutor:
         if not agents:
             raise ValueError("MultiAgentExecutor requires at least one agent")
 
-        current_input = task.description or ""
-        final_result: ExecutionResult | None = None
+        current_input: str = task.description or ""
+        final_result: Optional[ExecutionResult] = None
 
-        for agent in agents:
+        try:
 
-            intermediate_task = TaskCreate(
-                description=current_input,
-                input=current_input,
-            )
+            for agent in agents:
 
-            raw_result = self._agent_service.execute(
-                agent=agent,
-                task=intermediate_task,
-                context=context,
-            )
+                intermediate_task = TaskCreate(
+                    description=current_input,
+                    input=current_input,
+                )
 
-            final_result = ExecutionResult(**raw_result)
+                raw_result = self._agent_service.execute(
+                    agent=agent,
+                    task=intermediate_task,
+                    context=context,
+                )
 
-            # Pass output forward
-            current_input = final_result.output or ""
+                final_result = ExecutionResult(**raw_result)
 
-        if final_result is None:
-            raise RuntimeError("Multi-agent execution produced no result")
+                # Pass output forward
+                current_input = final_result.output or ""
 
-        return final_result
+            if final_result is None:
+                raise RuntimeError("Multi-agent execution produced no result")
+
+            # Store final output in execution context
+            context.set_final_output(final_result.output or "")
+
+            return final_result
+
+        except Exception as exc:
+
+            # Mark execution as failed safely
+            context.mark_failed(str(exc))
+
+            raise

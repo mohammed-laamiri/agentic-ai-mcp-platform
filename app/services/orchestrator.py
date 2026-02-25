@@ -33,6 +33,7 @@ class OrchestratorService:
     - Request execution plan from PlannerAgent
     - Execute agents in correct order
     - Collect execution results
+    - Execute tools safely
     - Persist results via TaskService (optional)
     - Maintain execution context
     """
@@ -48,13 +49,13 @@ class OrchestratorService:
         self._agent_service = agent_service
         self._planner_agent = planner_agent
 
-        # Multi-agent execution engine
+        # Multi-agent executor (your existing location)
         self._multi_agent_executor = MultiAgentExecutor(
             agent_service=self._agent_service
         )
 
     # ==================================================
-    # Public API
+    # Public API — Persisted execution
     # ==================================================
 
     def run(
@@ -68,23 +69,36 @@ class OrchestratorService:
 
         context = AgentExecutionContext()
 
-        plan = self._plan(
-            agent=agent,
-            task_in=task_in,
-            context=context,
-        )
+        try:
 
-        result = self._execute_plan(
-            original_agent=agent,
-            original_task=task_in,
-            plan=plan,
-            context=context,
-        )
+            plan = self._plan(
+                agent=agent,
+                task_in=task_in,
+                context=context,
+            )
 
-        return self._task_service.create(
-            task_in=task_in,
-            execution_result=result.dict(),
-        )
+            result = self._execute_plan(
+                original_agent=agent,
+                original_task=task_in,
+                plan=plan,
+                context=context,
+            )
+
+            context.mark_completed()
+
+            return self._task_service.create(
+                task_in=task_in,
+                execution_result=result.dict(),
+            )
+
+        except Exception as exc:
+
+            context.mark_failed(str(exc))
+            raise
+
+    # ==================================================
+    # Public API — Non-persisted execution
+    # ==================================================
 
     def execute(
         self,
@@ -97,18 +111,29 @@ class OrchestratorService:
 
         context = AgentExecutionContext()
 
-        plan = self._plan(
-            agent=agent,
-            task_in=task_in,
-            context=context,
-        )
+        try:
 
-        return self._execute_plan(
-            original_agent=agent,
-            original_task=task_in,
-            plan=plan,
-            context=context,
-        )
+            plan = self._plan(
+                agent=agent,
+                task_in=task_in,
+                context=context,
+            )
+
+            result = self._execute_plan(
+                original_agent=agent,
+                original_task=task_in,
+                plan=plan,
+                context=context,
+            )
+
+            context.mark_completed()
+
+            return result
+
+        except Exception as exc:
+
+            context.mark_failed(str(exc))
+            raise
 
     # ==================================================
     # Planning
@@ -199,7 +224,7 @@ class OrchestratorService:
         )
 
     # ==================================================
-    # Execution Strategies
+    # Single Agent Execution
     # ==================================================
 
     def _execute_single_agent(
@@ -209,7 +234,7 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> ExecutionResult:
         """
-        Execute single agent.
+        Execute a single agent safely.
         """
 
         raw_result = self._agent_service.execute(
@@ -227,6 +252,10 @@ class OrchestratorService:
 
         return ExecutionResult(**raw_result)
 
+    # ==================================================
+    # Multi-Agent Execution
+    # ==================================================
+
     def _execute_multi_agent(
         self,
         plan: ExecutionPlan,
@@ -234,15 +263,16 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> ExecutionResult:
         """
-        Delegate multi-agent execution safely.
+        Delegate to MultiAgentExecutor safely.
         """
 
         result = self._multi_agent_executor.execute(
             agents=plan.steps,
-            task=task_in,   # ✅ FIXED PARAM NAME
+            task=task_in,
             context=context,
         )
 
+        # Execute any tools collected during execution
         self._execute_tools(context)
 
         return result
@@ -258,6 +288,9 @@ class OrchestratorService:
     ) -> None:
 
         tool_calls = raw_result.get("tool_calls", [])
+
+        if not tool_calls:
+            return
 
         for call in tool_calls:
 
@@ -280,8 +313,11 @@ class OrchestratorService:
         context: AgentExecutionContext,
     ) -> None:
         """
-        Execute pending tool calls.
+        Execute all pending tool calls safely.
         """
+
+        if not context.tool_calls:
+            return
 
         for tool_call in context.tool_calls:
 
@@ -291,4 +327,5 @@ class OrchestratorService:
 
             context.add_tool_result(result)
 
+        # clear queue after execution
         context.tool_calls.clear()

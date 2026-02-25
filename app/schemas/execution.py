@@ -1,106 +1,61 @@
 """
-Execution result schema.
+Execution schemas.
 
-Represents the structured output produced by an agent execution.
-
-This model is intentionally minimal for now and will evolve to support:
-- Tool calls
-- Multi-step reasoning
-- Traces and logs
-- Token usage
-- Error states
+Defines execution result returned by agents and orchestrator.
 """
 
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Any, Optional, List
 
 from pydantic import BaseModel, Field
+
+from app.schemas.tool_call import ToolCall
 
 
 class ExecutionResult(BaseModel):
     """
-    Domain-level execution result.
+    Final result of agent execution.
 
-    Contract between:
-    - AgentService
-    - OrchestratorService
-    - TaskService
+    This object represents the structured output of an agent run,
+    including tool calls, output, timing, and error information.
     """
 
-    execution_id: str = Field(
-        ...,
-        description="Unique execution identifier",
-    )
-
-    task_id: Optional[str] = Field(
+    tool_call_id: Optional[str] = Field(
         default=None,
-        description="Associated task identifier",
+        description="Associated tool call identifier if applicable",
     )
 
-    agent_id: Optional[str] = Field(
+    tool_id: Optional[str] = Field(
         default=None,
-        description="ID of the agent that executed the task",
-    )
-
-    agent_name: Optional[str] = Field(
-        default=None,
-        description="Human-readable agent name",
-    )
-
-    strategy: Optional[str] = Field(
-        default="SINGLE_AGENT",
-        description="Execution strategy used",
-    )
-
-    input: Optional[str] = Field(
-        default=None,
-        description="Input provided to the agent",
-    )
-
-    output: Optional[str] = Field(
-        default=None,
-        description="Final output produced by the agent",
+        description="Tool identifier if execution was tool-driven",
     )
 
     status: str = Field(
-        default="SUCCESS",
-        description="Execution status (SUCCESS | FAILED | PARTIAL)",
+        ...,
+        description="Execution status (success, error, running, etc.)",
     )
 
-    tool_calls: Optional[List[Dict[str, Any]]] = Field(
+    output: Optional[Any] = Field(
         default=None,
-        description="Tools invoked during execution",
+        description="Primary output of the execution",
     )
 
-    errors: Optional[List[str]] = Field(
+    error: Optional[str] = Field(
         default=None,
-        description="Errors encountered during execution",
+        description="Error message if execution failed",
     )
 
-    child_results: Optional[List["ExecutionResult"]] = Field(
-        default=None,
-        description="Child execution results (for MULTI_AGENT)",
+    tool_calls: List[ToolCall] = Field(
+        default_factory=list,
+        description="Tool calls issued during execution",
     )
 
-    metadata: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Additional execution metadata (tokens, costs, etc.)",
+    started_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Execution start timestamp (UTC)",
     )
 
-    started_at: Optional[datetime] = Field(
-        default=None,
-        description="Execution start time (UTC)",
+    finished_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="Execution completion timestamp (UTC)",
     )
-
-    finished_at: Optional[datetime] = Field(
-        default=None,
-        description="Execution finish time (UTC)",
-    )
-
-    timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Execution creation timestamp (UTC)",
-    )
-
-    class Config:
-        arbitrary_types_allowed = True

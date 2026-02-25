@@ -4,11 +4,11 @@ Planner agent.
 Responsible for deciding *how* a task should be executed and
 assigning tools to agents (hook only, actual execution deferred).
 
-This module implements:
-- SINGLE_AGENT for simple tasks
-- MULTI_AGENT (sequential) for complex tasks
-- Tool assignment hooks for future integration
-- RAG context retrieval to enhance planning decisions
+Implements:
+- SINGLE_AGENT execution
+- MULTI_AGENT sequential execution
+- Tool assignment hooks
+- RAG-enhanced planning
 """
 
 from typing import List
@@ -25,22 +25,25 @@ from app.services.rag.rag_service import RAGService
 
 class PlannerAgent:
     """
-    Decides execution strategy and assigns tools.
+    Decides execution strategy and agent sequencing.
 
     Architectural role:
     - Chooses execution strategy
-    - Defines agent order
-    - Declares tool calls (hooks only, no execution here)
-    - Retrieves RAG knowledge to enhance planning
+    - Assigns execution steps
+    - Declares tool calls (future use)
+    - Uses RAG to enhance planning quality
+
+    IMPORTANT:
+    - Does NOT execute agents
+    - Does NOT execute tools
     """
 
     def __init__(self, rag_service: RAGService | None = None) -> None:
-        """
-        Inject RAG service.
-
-        Optional to preserve backward compatibility and testing flexibility.
-        """
         self._rag_service = rag_service
+
+    # ==================================================
+    # Main planning entrypoint
+    # ==================================================
 
     def plan(
         self,
@@ -49,18 +52,15 @@ class PlannerAgent:
         context: AgentExecutionContext | None = None,
     ) -> ExecutionPlan:
         """
-        Produce an execution plan.
+        Produce execution plan.
 
-        Current rules:
-        - Default: SINGLE_AGENT
-        - Complex tasks: MULTI_AGENT (sequential)
-        - Uses RAG context (if available) to enhance reasoning
+        Safe, deterministic planning logic.
         """
 
         task_text = (task.description or "").lower()
 
         # --------------------------------------------------
-        # Retrieve RAG context (safe, optional)
+        # Retrieve RAG context safely
         # --------------------------------------------------
 
         rag_context: List[str] = []
@@ -72,60 +72,84 @@ class PlannerAgent:
                     top_k=3,
                 )
             except Exception:
-                # Fail-safe: planning must never crash due to RAG
                 rag_context = []
 
         rag_count = len(rag_context)
 
         # --------------------------------------------------
-        # Determine task complexity
+        # Determine complexity
         # --------------------------------------------------
 
-        is_complex = any(
-            keyword in task_text
-            for keyword in [
-                "analyze",
-                "research",
-                "compare",
-                "summarize",
-                "find",
-                "search",
-                "explain",
-            ]
-        )
+        is_complex = self._is_complex_task(task_text)
 
         # --------------------------------------------------
-        # Multi-agent execution
+        # MULTI_AGENT strategy
         # --------------------------------------------------
 
         if is_complex:
-            steps = self._assign_agents(task, lead_agent=agent)
+
+            steps = self._assign_agents(
+                task=task,
+                lead_agent=agent,
+            )
+
+            if context:
+                context.metadata["planning_strategy"] = "multi_agent"
+                context.metadata["rag_context_count"] = rag_count
 
             return ExecutionPlan(
                 strategy=ExecutionStrategy.MULTI_AGENT,
                 steps=steps,
                 reason=(
-                    "Task classified as complex; using sequential multi-agent execution. "
-                    f"RAG context items retrieved: {rag_count}"
+                    "Task classified as complex; sequential multi-agent execution selected. "
+                    f"RAG items retrieved: {rag_count}"
                 ),
             )
 
         # --------------------------------------------------
-        # Single-agent execution
+        # SINGLE_AGENT strategy
         # --------------------------------------------------
+
+        if context:
+            context.metadata["planning_strategy"] = "single_agent"
+            context.metadata["rag_context_count"] = rag_count
 
         return ExecutionPlan(
             strategy=ExecutionStrategy.SINGLE_AGENT,
             steps=[agent],
             reason=(
-                "Task classified as simple; using single-agent execution. "
-                f"RAG context items retrieved: {rag_count}"
+                "Task classified as simple; single-agent execution selected. "
+                f"RAG items retrieved: {rag_count}"
             ),
         )
 
-    # ------------------------------------------
+    # ==================================================
+    # Complexity detection
+    # ==================================================
+
+    def _is_complex_task(self, task_text: str) -> bool:
+        """
+        Detect whether task requires multi-agent execution.
+        """
+
+        complexity_keywords = [
+            "analyze",
+            "research",
+            "compare",
+            "summarize",
+            "investigate",
+            "evaluate",
+            "explain",
+            "search",
+            "find",
+            "review",
+        ]
+
+        return any(keyword in task_text for keyword in complexity_keywords)
+
+    # ==================================================
     # Agent assignment
-    # ------------------------------------------
+    # ==================================================
 
     def _assign_agents(
         self,
@@ -133,17 +157,26 @@ class PlannerAgent:
         lead_agent: AgentRead,
     ) -> List[AgentRead]:
         """
-        Assigns a sequence of agents to execute this task.
+        Assign agents in execution order.
 
         Current behavior:
-        - Placeholder: uses lead_agent twice
-        - Future: specialized agents (ResearchAgent, AnalysisAgent, etc.)
-        """
-        return [lead_agent, lead_agent]
+        - Uses lead agent twice (placeholder)
 
-    # ------------------------------------------
-    # Tool assignment hooks (future use)
-    # ------------------------------------------
+        Future:
+        - ResearchAgent
+        - AnalysisAgent
+        - ToolAgent
+        - SynthesisAgent
+        """
+
+        return [
+            lead_agent,
+            lead_agent,
+        ]
+
+    # ==================================================
+    # Tool assignment hook (future)
+    # ==================================================
 
     def _assign_tools(
         self,
@@ -151,11 +184,9 @@ class PlannerAgent:
         agent: AgentRead,
     ) -> List[ToolCall]:
         """
-        Hook to assign tools to an agent.
+        Hook to assign tools to agent.
 
-        IMPORTANT:
-        - Does NOT execute tools
-        - Only declares ToolCall objects
-        - Execution handled later by ToolExecutionEngine
+        Tools are declared, not executed here.
         """
+
         return []

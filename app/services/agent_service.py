@@ -6,7 +6,7 @@ Responsible for:
 - Declaring tool calls
 - Interacting with LLMs (later)
 
-Currently a deterministic stub.
+Currently a deterministic stub compatible with ExecutionResult schema.
 """
 
 from datetime import datetime, timezone
@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
+from app.schemas.execution import ExecutionResult
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
@@ -38,6 +39,10 @@ class AgentService:
         """
         self._rag_service = rag_service
 
+    # ==================================================
+    # Main execution entrypoint
+    # ==================================================
+
     def execute(
         self,
         agent: AgentRead,
@@ -47,10 +52,11 @@ class AgentService:
         """
         Execute a task using an agent.
 
-        IMPORTANT:
-        - Returns dict (execution payload)
-        - Tool calls are DECLARED, not executed
+        Returns dict compatible with ExecutionResult.
+        Tool calls are DECLARED, not executed.
         """
+
+        started_at = datetime.now(timezone.utc)
 
         # --------------------------------------------------
         # Retrieve RAG context (if available)
@@ -60,35 +66,42 @@ class AgentService:
 
         if self._rag_service:
             rag_context = self._rag_service.retrieve(
-                query=task.description,
+                query=task.description or "",
                 top_k=3,
             )
 
         context_text = "\n".join(rag_context) if rag_context else "No RAG context."
 
         # --------------------------------------------------
-        # Build response
+        # Build stub output
         # --------------------------------------------------
 
         output = (
             f"[STUB RESPONSE]\n"
-            f"[AGENT RESPONSE]\n"
             f"Agent: {agent.name}\n\n"
             f"Task:\n{task.description}\n\n"
             f"Retrieved Context:\n{context_text}"
         )
 
+        finished_at = datetime.now(timezone.utc)
+
+        # --------------------------------------------------
+        # Return ExecutionResult-compatible payload
+        # --------------------------------------------------
+
         return {
-            "execution_id": str(uuid4()),
-            "agent_id": agent.id,
-            "agent_name": agent.name,
-            "input": task.description,
+            "tool_call_id": None,
+            "tool_id": None,
+            "status": "success",
             "output": output,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": None,
+            "tool_calls": [],
+            "started_at": started_at,
+            "finished_at": finished_at,
         }
 
     # ==================================================
-    # Tool Execution Hook (NOT USED YET)
+    # Tool Execution Hook (future use)
     # ==================================================
 
     def execute_tool(
@@ -101,6 +114,7 @@ class AgentService:
 
         Actual execution will be handled by ToolExecutor later.
         """
+
         return ToolResult(
             tool_id=tool_call.tool_id,
             success=True,
