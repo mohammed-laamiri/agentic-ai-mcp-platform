@@ -3,11 +3,15 @@ MultiAgentExecutor
 
 Executes multiple agents sequentially as defined in the execution plan.
 
-This executor is responsible ONLY for execution.
-It does NOT decide strategy (Planner does that).
-It does NOT handle orchestration (OrchestratorService does that).
+Responsibilities:
+- Execute agents in order
+- Pass output of each agent to the next
+- Maintain shared execution context
+- Return standardized execution result
 
-It simply runs agents in order.
+Non-responsibilities:
+- Does NOT decide execution strategy (Planner does)
+- Does NOT orchestrate workflow (OrchestratorService does)
 """
 
 from typing import Any, Dict, List
@@ -18,9 +22,15 @@ class MultiAgentExecutor:
     Executes multiple agents sequentially.
 
     Contract:
-    - agents: list of agent instances
-    - task_in: the task input
-    - context: shared execution context
+        agents: List of agent instances implementing:
+            execute(task_in: Any, context: Dict[str, Any]) -> Dict[str, Any]
+
+        task_in: Initial task input
+
+        context: Shared mutable execution context
+
+    Returns:
+        Dict[str, Any]: Standard execution result
     """
 
     def execute(
@@ -32,27 +42,58 @@ class MultiAgentExecutor:
         """
         Execute agents sequentially.
 
-        Returns execution result dictionary.
+        Each agent receives:
+            - task_in: output from previous agent
+            - context: shared execution context
+
+        Returns standardized execution result.
         """
 
-        results = []
-        current_input = task_in
+        if not agents:
+            return {
+                "success": False,
+                "strategy": "multi_agent",
+                "error": "No agents provided",
+                "steps_executed": 0,
+                "results": [],
+                "final_result": None,
+            }
 
-        for agent in agents:
-            agent_result = agent.execute(
-                task_in=current_input,
-                context=context,
-            )
+        results: List[Dict[str, Any]] = []
+        current_input: Any = task_in
 
-            results.append(agent_result)
+        try:
+            for index, agent in enumerate(agents):
 
-            # Pass result to next agent
-            current_input = agent_result
+                if not hasattr(agent, "execute"):
+                    raise AttributeError(
+                        f"Agent at index {index} does not implement execute()"
+                    )
 
-        return {
-            "success": True,
-            "strategy": "multi_agent",
-            "steps_executed": len(agents),
-            "results": results,
-            "final_result": current_input,
-        }
+                agent_result = agent.execute(
+                    task_in=current_input,
+                    context=context,
+                )
+
+                results.append(agent_result)
+
+                # Pass result to next agent
+                current_input = agent_result
+
+            return {
+                "success": True,
+                "strategy": "multi_agent",
+                "steps_executed": len(agents),
+                "results": results,
+                "final_result": current_input,
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "strategy": "multi_agent",
+                "error": str(e),
+                "steps_executed": len(results),
+                "results": results,
+                "final_result": None,
+            }

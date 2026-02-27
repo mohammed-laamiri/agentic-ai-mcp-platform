@@ -30,13 +30,13 @@ class ExecutionService:
         agent_service: AgentService,
     ) -> None:
 
+        self._agent_service = agent_service
+
         self._single_executor = SingleAgentExecutor(
-            agent_service=agent_service,
+            agent_service
         )
 
-        self._multi_executor = MultiAgentExecutor(
-            agent_service=agent_service,
-        )
+        self._multi_executor = MultiAgentExecutor()
 
     # ==================================================
     # Public API

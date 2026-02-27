@@ -193,16 +193,10 @@ class OrchestratorService:
     ) -> ExecutionResult:
         """
         Delegate execution to ExecutionService.
-
-        ExecutionService owns:
-        - executor selection
-        - agent execution
-        - tool execution
-        - memory writing
         """
 
         return self._execution_service.execute_plan(
             plan=plan,
-            task=task_in,
+            task_in=task_in,
             context=context,
         )

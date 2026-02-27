@@ -5,8 +5,7 @@ Responsible for:
 - Executing agent logic
 - Declaring tool calls
 - Interacting with LLMs (later)
-
-Currently a deterministic stub compatible with ExecutionResult schema.
+- Executing tools via ToolExecutor
 """
 
 from datetime import datetime, timezone
@@ -20,6 +19,8 @@ from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
 
 from app.services.rag.rag_service import RAGService
+from app.services.tool_executor import ToolExecutor
+from app.services.tool_registry import ToolRegistry
 
 
 class AgentService:
@@ -28,16 +29,18 @@ class AgentService:
 
     Architectural role:
     - Stable execution boundary
-    - Future tool-aware agent runtime
+    - Tool-aware agent runtime
     """
 
     def __init__(self, rag_service: RAGService | None = None) -> None:
         """
-        Inject RAG service.
-
-        Optional for backward compatibility.
+        Inject RAG service and initialize tool execution engine.
         """
         self._rag_service = rag_service
+
+        # Tool system
+        self._tool_registry = ToolRegistry()
+        self._tool_executor = ToolExecutor(tool_registry=self._tool_registry)
 
     # ==================================================
     # Main execution entrypoint
@@ -53,20 +56,17 @@ class AgentService:
         Execute a task using an agent.
 
         Returns dict compatible with ExecutionResult.
-        Tool calls are DECLARED, not executed.
+        Tool calls are DECLARED, not executed automatically.
         """
-
         started_at = datetime.now(timezone.utc)
 
         # --------------------------------------------------
         # Retrieve RAG context (if available)
         # --------------------------------------------------
-
         rag_context = []
-
-        if self._rag_service:
+        if self._rag_service and task.description:
             rag_context = self._rag_service.retrieve(
-                query=task.description or "",
+                query=task.description,
                 top_k=3,
             )
 
@@ -75,7 +75,6 @@ class AgentService:
         # --------------------------------------------------
         # Build stub output
         # --------------------------------------------------
-
         output = (
             f"[STUB RESPONSE]\n"
             f"Agent: {agent.name}\n\n"
@@ -88,7 +87,6 @@ class AgentService:
         # --------------------------------------------------
         # Return ExecutionResult-compatible payload
         # --------------------------------------------------
-
         return {
             "tool_call_id": None,
             "tool_id": None,
@@ -101,7 +99,7 @@ class AgentService:
         }
 
     # ==================================================
-    # Tool Execution Hook (future use)
+    # Tool execution via ToolExecutor
     # ==================================================
 
     def execute_tool(
@@ -110,18 +108,17 @@ class AgentService:
         context: AgentExecutionContext | None = None,
     ) -> ToolResult:
         """
-        Stub for tool execution.
+        Execute a tool call using the injected ToolExecutor.
 
-        Actual execution will be handled by ToolExecutor later.
+        Parameters
+        ----------
+        tool_call : ToolCall
+            ToolCall object describing the tool and input
+        context : AgentExecutionContext | None
+            Optional shared execution context for logging or metadata
+
+        Returns
+        -------
+        ToolResult
         """
-
-        return ToolResult(
-            tool_id=tool_call.tool_id,
-            success=True,
-            output=f"[STUB] Tool '{tool_call.tool_id}' executed.",
-            error=None,
-            metadata={
-                "stub": True,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-        )
+        return self._tool_executor.execute(tool_call=tool_call)

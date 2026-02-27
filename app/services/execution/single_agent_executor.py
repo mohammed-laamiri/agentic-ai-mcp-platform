@@ -22,15 +22,20 @@ class SingleAgentExecutor:
 
     Responsibilities:
     - Receive agent
-    - Execute agent logic
-    - Return result
+    - Execute agent logic via AgentService
+    - Return normalized ExecutionResult
 
     Does NOT:
     - Know about plans
     - Know about orchestration
+    - Execute tools
+    - Manage execution lifecycle
     """
 
-    def __init__(self, agent_service: AgentService) -> None:
+    def __init__(
+        self,
+        agent_service: AgentService,
+    ) -> None:
         self._agent_service = agent_service
 
     # ==================================================
@@ -46,17 +51,39 @@ class SingleAgentExecutor:
         """
         Execute ONE agent.
 
-        Input:
-        - agent: Agent to execute
-        - task_in: TaskCreate object
-        - context: shared execution context
+        Parameters
+        ----------
+        agent : AgentRead
+            Agent to execute
 
-        Returns:
-        - ExecutionResult
+        task_in : TaskCreate
+            Task input
+
+        context : AgentExecutionContext
+            Shared execution context
+
+        Returns
+        -------
+        ExecutionResult
+            Normalized execution result
         """
 
         # --------------------------------------------------
-        # Execute agent using AgentService
+        # Validate inputs (safety)
+        # --------------------------------------------------
+        if agent is None:
+            raise ValueError("agent cannot be None")
+
+        if task_in is None:
+            raise ValueError("task_in cannot be None")
+
+        if context is None:
+            raise ValueError("context cannot be None")
+
+        # --------------------------------------------------
+        # Execute agent via AgentService
+        # IMPORTANT: use 'task' parameter name because
+        # AgentService.execute expects 'task'
         # --------------------------------------------------
         raw_result = self._agent_service.execute(
             agent=agent,
@@ -65,18 +92,7 @@ class SingleAgentExecutor:
         )
 
         # --------------------------------------------------
-        # Collect any declared tool calls in context
-        # --------------------------------------------------
-        tool_calls = raw_result.get("tool_calls", [])
-        for call in tool_calls:
-            if isinstance(call, dict):
-                from app.schemas.tool_call import ToolCall
-                context.add_tool_call(ToolCall(**call))
-            elif hasattr(call, "__class__") and call.__class__.__name__ == "ToolCall":
-                context.add_tool_call(call)
-
-        # --------------------------------------------------
-        # Return ExecutionResult
+        # Normalize result into ExecutionResult
         # --------------------------------------------------
         if isinstance(raw_result, ExecutionResult):
             return raw_result
@@ -84,6 +100,10 @@ class SingleAgentExecutor:
         if isinstance(raw_result, dict):
             return ExecutionResult(**raw_result)
 
+        # --------------------------------------------------
+        # Invalid result protection
+        # --------------------------------------------------
         raise TypeError(
-            f"AgentService returned invalid result type: {type(raw_result)}"
+            "AgentService.execute must return ExecutionResult or dict, "
+            f"got {type(raw_result)}"
         )

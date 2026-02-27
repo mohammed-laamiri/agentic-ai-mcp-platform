@@ -26,16 +26,32 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# ==========================================================
+# PYTEST CONFIGURATION (FIXED — single unified section)
+# ==========================================================
 [tool.pytest.ini_options]
+
+# ensures "app" package is importable
+pythonpath = ["."]
 testpaths = ["tests"]
-python_files = "test_*.py"
-python_functions = "test_*"
+
+# test discovery
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+# output options
 addopts = "-v --tb=short"
 
+# ==========================================================
+# RUFF CONFIG
+# ==========================================================
 [tool.ruff]
 line-length = 88
 target-version = "py311"
 
+# ==========================================================
+# MYPY CONFIG
+# ==========================================================
 [tool.mypy]
 python_version = "3.11"
 strict = true
