@@ -30,7 +30,9 @@ class ExecutionService:
         agent_service: AgentService,
     ) -> None:
 
-        self._single_executor = SingleAgentExecutor()
+        self._single_executor = SingleAgentExecutor(
+            agent_service=agent_service,
+        )
 
         self._multi_executor = MultiAgentExecutor(
             agent_service=agent_service,
@@ -40,10 +42,10 @@ class ExecutionService:
     # Public API
     # ==================================================
 
-    def execute(
+    def execute_plan(
         self,
         plan: ExecutionPlan,
-        task_in: TaskCreate,
+        task_in: TaskCreate,   # ← MATCH YOUR EXECUTORS
         context: AgentExecutionContext,
     ) -> ExecutionResult:
         """
@@ -52,23 +54,20 @@ class ExecutionService:
 
         if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
 
-            raw = self._single_executor.execute(
+            return self._single_executor.execute(
                 agent=plan.steps[0],
-                task_in=task_in,
+                task_in=task_in,     # ← FIXED
                 context=context,
-            )
-
-            return ExecutionResult(
-                status="success",
-                output=raw["result"],
             )
 
         if plan.strategy == ExecutionStrategy.MULTI_AGENT:
 
             return self._multi_executor.execute(
                 agents=plan.steps,
-                task_in=task_in,
+                task_in=task_in,     # ← FIXED
                 context=context,
             )
 
-        raise ValueError(f"Unsupported execution strategy: {plan.strategy}")
+        raise ValueError(
+            f"Unsupported execution strategy: {plan.strategy}"
+        )

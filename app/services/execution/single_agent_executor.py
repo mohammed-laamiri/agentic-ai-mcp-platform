@@ -78,4 +78,12 @@ class SingleAgentExecutor:
         # --------------------------------------------------
         # Return ExecutionResult
         # --------------------------------------------------
-        return ExecutionResult(**raw_result)
+        if isinstance(raw_result, ExecutionResult):
+            return raw_result
+
+        if isinstance(raw_result, dict):
+            return ExecutionResult(**raw_result)
+
+        raise TypeError(
+            f"AgentService returned invalid result type: {type(raw_result)}"
+        )
