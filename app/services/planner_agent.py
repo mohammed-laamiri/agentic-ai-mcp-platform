@@ -93,13 +93,20 @@ class PlannerAgent:
                 lead_agent=agent,
             )
 
+            # Attach tool calls for each agent
+            agent_steps_with_tools = []
+            for a in steps:
+                tools = self._assign_tools(task, a)
+                a.metadata["assigned_tools"] = tools
+                agent_steps_with_tools.append(a)
+
             if context:
                 context.metadata["planning_strategy"] = "multi_agent"
                 context.metadata["rag_context_count"] = rag_count
 
             return ExecutionPlan(
                 strategy=ExecutionStrategy.MULTI_AGENT,
-                steps=steps,
+                steps=agent_steps_with_tools,
                 reason=(
                     "Task classified as complex; sequential multi-agent execution selected. "
                     f"RAG items retrieved: {rag_count}"
@@ -109,6 +116,10 @@ class PlannerAgent:
         # --------------------------------------------------
         # SINGLE_AGENT strategy
         # --------------------------------------------------
+
+        # Attach tool calls
+        tools = self._assign_tools(task, agent)
+        agent.metadata["assigned_tools"] = tools
 
         if context:
             context.metadata["planning_strategy"] = "single_agent"

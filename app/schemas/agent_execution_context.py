@@ -1,143 +1,60 @@
 """
-Agent Execution Context.
+Agent Execution Context schema.
 
-Execution-scoped context object used during
-a single orchestrator run.
+Shared mutable context passed between planner, agents, and executors.
 
-Architectural intent:
-- Created by the Orchestrator
-- Read-only for agents (mutation only via helper methods)
-- Collects execution metadata
-- Tracks tool calls and results
+This enables:
+
+• execution trace tracking
+• metadata propagation
+• multi-agent coordination
+• future memory and state support
 """
 
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
-from uuid import uuid4
+from datetime import datetime
+from typing import Optional, Dict, Any
 
-from typing_extensions import Annotated
-
-from pydantic import BaseModel, Field, ConfigDict
-
-from app.schemas.tool_call import ToolCall
-from app.schemas.tool_result import ToolResult
+from pydantic import BaseModel, Field
 
 
 class AgentExecutionContext(BaseModel):
     """
-    Execution-scoped context for a single orchestration run.
-
-    IMPORTANT:
-    - Created and owned by Orchestrator
-    - Agents should treat this as READ-ONLY
-    - Provides structured execution trace
+    Shared execution state across the agent runtime.
     """
 
-    # Required for proper typing and runtime behavior
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # --------------------------------------------------
+    # Execution metadata storage
+    # --------------------------------------------------
 
-    # ==========================================================
-    # Core execution identity
-    # ==========================================================
-
-    run_id: str = Field(
-        default_factory=lambda: str(uuid4()),
-        description="Unique identifier for this execution run",
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Flexible metadata storage for execution pipeline",
     )
 
-    started_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc),
-        description="Execution start timestamp",
-    )
+    # --------------------------------------------------
+    # Execution trace tracking
+    # --------------------------------------------------
 
-    completed_at: Optional[datetime] = Field(
+    last_agent_id: Optional[str] = Field(
         default=None,
-        description="Execution completion timestamp",
+        description="ID of the most recently executed agent",
     )
 
-    status: str = Field(
-        default="running",
-        description="Execution status (running, completed, failed)",
-    )
-
-    error: Optional[str] = Field(
+    last_execution_time: Optional[datetime] = Field(
         default=None,
-        description="Execution error if failed",
+        description="Timestamp of last agent execution",
     )
 
-    # ==========================================================
-    # Tool execution tracking
-    # ==========================================================
+    # --------------------------------------------------
+    # Optional future extensions
+    # --------------------------------------------------
 
-    tool_calls: Annotated[
-        List[ToolCall],
-        Field(
-            default_factory=list,
-            description="Tool calls issued during execution",
-        ),
-    ]
-
-    tool_results: Annotated[
-        List[ToolResult],
-        Field(
-            default_factory=list,
-            description="Tool results produced during execution",
-        ),
-    ]
-
-    # ==========================================================
-    # Additional runtime metadata
-    # ==========================================================
-
-    metadata: Annotated[
-        Dict[str, Any],
-        Field(
-            default_factory=dict,
-            description="Execution metadata",
-        ),
-    ]
-
-    final_output: Optional[str] = Field(
+    session_id: Optional[str] = Field(
         default=None,
-        description="Final output produced by execution",
+        description="Execution session identifier",
     )
 
-    # ==========================================================
-    # Safe helper methods (Orchestrator-owned mutations)
-    # ==========================================================
-
-    def add_tool_call(self, tool_call: ToolCall) -> None:
-        """Register a tool call in execution trace."""
-        self.tool_calls.append(tool_call)
-
-    def add_tool_result(self, tool_result: ToolResult) -> None:
-        """Register a tool result in execution trace."""
-        self.tool_results.append(tool_result)
-
-    def set_final_output(self, output: str) -> None:
-        """Store final execution output."""
-        self.final_output = output
-
-    def mark_completed(self) -> None:
-        """Mark execution as completed."""
-        self.completed_at = datetime.now(timezone.utc)
-        self.status = "completed"
-
-    def mark_failed(self, error: str) -> None:
-        """Mark execution as failed."""
-        self.completed_at = datetime.now(timezone.utc)
-        self.status = "failed"
-        self.error = error
-
-    # ==========================================================
-    # Convenience helpers
-    # ==========================================================
-
-    def is_running(self) -> bool:
-        return self.status == "running"
-
-    def is_completed(self) -> bool:
-        return self.status == "completed"
-
-    def is_failed(self) -> bool:
-        return self.status == "failed"
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Optional user identifier",
+    )

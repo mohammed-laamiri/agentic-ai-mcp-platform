@@ -1,99 +1,91 @@
 """
 MultiAgentExecutor
 
-Executes multiple agents sequentially as defined in the execution plan.
+Executes agents sequentially for MULTI_AGENT strategy.
 
 Responsibilities:
 - Execute agents in order
-- Pass output of each agent to the next
-- Maintain shared execution context
-- Return standardized execution result
-
-Non-responsibilities:
-- Does NOT decide execution strategy (Planner does)
-- Does NOT orchestrate workflow (OrchestratorService does)
+- Pass context between agents
+- Aggregate results safely
+- Return unified ExecutionResult
 """
 
-from typing import Any, Dict, List
+from typing import List
+
+from app.schemas.agent import AgentRead
+from app.schemas.task import TaskCreate
+from app.schemas.execution import ExecutionResult
+from app.schemas.agent_execution_context import AgentExecutionContext
+
+from app.services.agent_service import AgentService
 
 
 class MultiAgentExecutor:
     """
-    Executes multiple agents sequentially.
+    Sequential multi-agent executor.
 
-    Contract:
-        agents: List of agent instances implementing:
-            execute(task_in: Any, context: Dict[str, Any]) -> Dict[str, Any]
-
-        task_in: Initial task input
-
-        context: Shared mutable execution context
-
-    Returns:
-        Dict[str, Any]: Standard execution result
+    Production-safe implementation.
     """
+
+    def __init__(self, agent_service: AgentService | None = None) -> None:
+        self._agent_service = agent_service or AgentService()
+
+    # ==========================================================
+    # Main execution
+    # ==========================================================
 
     def execute(
         self,
-        agents: List[Any],
-        task_in: Any,
-        context: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        agents: List[AgentRead],
+        task_in: TaskCreate,
+        context: AgentExecutionContext,
+    ) -> ExecutionResult:
         """
         Execute agents sequentially.
 
-        Each agent receives:
-            - task_in: output from previous agent
-            - context: shared execution context
-
-        Returns standardized execution result.
+        Always returns ExecutionResult.
+        Never returns dict.
+        Never throws unhandled exceptions.
         """
 
-        if not agents:
-            return {
-                "success": False,
-                "strategy": "multi_agent",
-                "error": "No agents provided",
-                "steps_executed": 0,
-                "results": [],
-                "final_result": None,
-            }
-
-        results: List[Dict[str, Any]] = []
-        current_input: Any = task_in
+        last_output = None
 
         try:
-            for index, agent in enumerate(agents):
 
-                if not hasattr(agent, "execute"):
-                    raise AttributeError(
-                        f"Agent at index {index} does not implement execute()"
-                    )
+            for agent in agents:
 
-                agent_result = agent.execute(
-                    task_in=current_input,
+                result = self._agent_service.execute(
+                    agent=agent,
+                    task=task_in,
                     context=context,
                 )
 
-                results.append(agent_result)
+                # Normalize result if dict
+                if isinstance(result, dict):
+                    result = ExecutionResult(**result)
 
-                # Pass result to next agent
-                current_input = agent_result
+                # If execution failed → stop
+                if result.status == "error":
+                    return result
 
-            return {
-                "success": True,
-                "strategy": "multi_agent",
-                "steps_executed": len(agents),
-                "results": results,
-                "final_result": current_input,
-            }
+                # Store last output
+                last_output = result.output
 
-        except Exception as e:
-            return {
-                "success": False,
-                "strategy": "multi_agent",
-                "error": str(e),
-                "steps_executed": len(results),
-                "results": results,
-                "final_result": None,
-            }
+                # Update context memory safely
+                if context and hasattr(context, "memory"):
+                    context.memory["last_output"] = last_output
+
+            # All agents executed successfully
+            return ExecutionResult(
+                status="success",
+                output=last_output,
+                error=None,
+            )
+
+        except Exception as exc:
+
+            return ExecutionResult(
+                status="error",
+                output=None,
+                error=f"Multi-agent execution failed: {str(exc)}",
+            )
