@@ -14,121 +14,84 @@ This service does NOT:
 This is a pure retrieval service.
 """
 
-from typing import List
+from typing import List, Optional
 import uuid
-
 import chromadb
 from chromadb.config import Settings
+from app.services.rag.embedding_service import BaseEmbeddingService
 
 
 class RAGService:
-    """
-    Minimal Chroma-based retrieval service compatible with RAG router.
-    """
 
     def __init__(
         self,
         persist_directory: str = "./chroma_db",
         collection_name: str = "knowledge_base",
+        embedding_service: Optional[BaseEmbeddingService] = None,
     ) -> None:
+
+        self._embedding_service = embedding_service
+
         self._client = chromadb.Client(
             Settings(
                 persist_directory=persist_directory,
                 anonymized_telemetry=False,
+                is_persistent=True,
             )
         )
 
+        self._collection_name = collection_name
+
         self._collection = self._client.get_or_create_collection(
-            name=collection_name
+            name=self._collection_name
         )
 
-    # =====================================================
-    # Document ingestion
-    # =====================================================
-
-    def add_document(
-        self,
-        content: str,
-        metadata: dict | None = None,
-        document_id: str | None = None,
-    ) -> str:
-        """
-        Add a document to the vector store.
-        """
-        doc_id = document_id or str(uuid.uuid4())
-
-        self._collection.add(
-            ids=[doc_id],
-            documents=[content],
-            metadatas=[metadata or {}],
-        )
-
-        return doc_id
+    # ----------------------------------------------------
+    # Ingestion
+    # ----------------------------------------------------
 
     def add_documents(
         self,
         documents: List[str],
+        metadatas: Optional[List[dict]] = None,
     ) -> List[str]:
-        """
-        Add multiple documents.
-        """
+
         ids = [str(uuid.uuid4()) for _ in documents]
+
+        embeddings = None
+        if self._embedding_service:
+            embeddings = self._embedding_service.embed(documents)
 
         self._collection.add(
             ids=ids,
             documents=documents,
+            metadatas=metadatas if metadatas else [{} for _ in documents],
+            embeddings=embeddings,
         )
 
         return ids
 
-    # =====================================================
-    # Router-compatible aliases
-    # =====================================================
-
-    def ingest(self, document_id: str, text: str) -> str:
-        """
-        Ingest a single document (used by RAG router).
-        """
-        return self.add_document(content=text, document_id=document_id)
-
-    def query(self, query: str, k: int = 3) -> list[str]:
-        """
-        Query top-k documents (used by RAG router).
-        """
-        return self.retrieve(query=query, top_k=k)
-
-    # =====================================================
+    # ----------------------------------------------------
     # Retrieval
-    # =====================================================
+    # ----------------------------------------------------
 
-    def retrieve(
-        self,
-        query: str,
-        top_k: int = 3,
-    ) -> List[str]:
-        """
-        Retrieve most relevant documents.
-        """
-        results = self._collection.query(
-            query_texts=[query],
-            n_results=top_k,
-        )
+    def retrieve(self, query: str, top_k: int = 3) -> List[str]:
 
-        return results.get("documents", [[]])[0]
+        if self._embedding_service:
+            query_embedding = self._embedding_service.embed([query])[0]
 
-    # =====================================================
-    # Maintenance
-    # =====================================================
+            results = self._collection.query(
+                query_embeddings=[query_embedding],
+                n_results=top_k,
+            )
+        else:
+            results = self._collection.query(
+                query_texts=[query],
+                n_results=top_k,
+            )
 
-    def count(self) -> int:
-        return self._collection.count()
+        documents = results.get("documents", [])
+        if not documents:
+            return []
 
-    def clear(self) -> None:
-        """
-        Delete all documents.
-        """
-        self._client.delete_collection(self._collection.name)
-
-        self._collection = self._client.get_or_create_collection(
-            name=self._collection.name
-        )
+        return documents[0]
