@@ -15,23 +15,30 @@ from app.services.tool_registry import ToolRegistry
 
 
 class ToolValidationError(Exception):
+    """
+    Raised when a tool call fails validation.
+    """
     pass
 
 
 class ToolValidator:
+    """
+    Validates tool calls against the registry and schema before execution.
+    """
 
     def __init__(self, registry: ToolRegistry):
         self._registry = registry
 
     def validate(self, tool_call: ToolCall) -> None:
         """
-        Validate tool call against registry schema.
+        Validate a tool call against the registry metadata and input schema.
+
+        Raises ToolValidationError on any validation failure.
         """
 
         # --------------------------------------------------
-        # Tool existence
+        # Tool existence check
         # --------------------------------------------------
-
         if not self._registry.has_tool(tool_call.tool_id):
             raise ToolValidationError(
                 f"Tool '{tool_call.tool_id}' is not registered"
@@ -40,18 +47,18 @@ class ToolValidator:
         # --------------------------------------------------
         # Schema validation
         # --------------------------------------------------
-
         schema = self._registry.get_input_schema(tool_call.tool_id)
-
         if not schema:
-            return
+            return  # No schema defined, accept any input
 
         self._validate_arguments(
-            tool_call.tool_id,
-            tool_call.arguments,
-            schema,
+            tool_id=tool_call.tool_id,
+            arguments=tool_call.arguments or {},
+            schema=schema,
         )
 
+    # --------------------------------------------------
+    # Internal helpers
     # --------------------------------------------------
 
     def _validate_arguments(
@@ -60,24 +67,26 @@ class ToolValidator:
         arguments: Dict[str, Any],
         schema: Dict[str, Any],
     ) -> None:
+        """
+        Validate arguments against JSON-schema-like definition.
+        """
 
         required = schema.get("required", [])
         properties = schema.get("properties", {})
 
-        # Required check
+        # Required fields check
         for field in required:
             if field not in arguments:
                 raise ToolValidationError(
                     f"Tool '{tool_id}' missing required argument '{field}'"
                 )
 
-        # Type check
+        # Type check for each argument
         for field, value in arguments.items():
 
             expected = properties.get(field)
-
             if not expected:
-                continue
+                continue  # No type specified, skip
 
             expected_type = expected.get("type")
 
@@ -104,4 +113,9 @@ class ToolValidator:
             if expected_type == "object" and not isinstance(value, dict):
                 raise ToolValidationError(
                     f"Argument '{field}' must be object"
+                )
+
+            if expected_type == "array" and not isinstance(value, list):
+                raise ToolValidationError(
+                    f"Argument '{field}' must be array"
                 )

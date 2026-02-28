@@ -27,8 +27,9 @@ class ToolMetadata:
 
     SAFE to share across planner, orchestrator, and execution layers.
 
-    New:
+    Includes:
     - input_schema: JSON-schema-like validation contract
+    - version: semantic versioning
     """
 
     tool_id: str
@@ -52,10 +53,10 @@ class ToolRegistry:
 
     def __init__(self) -> None:
 
-        # Metadata store
+        # Metadata store: tool_id -> ToolMetadata
         self._tools: Dict[str, ToolMetadata] = {}
 
-        # Callable binding store
+        # Callable binding store: tool_id -> Callable
         self._callables: Dict[str, Callable[..., Any]] = {}
 
     # --------------------------------------------------
@@ -66,12 +67,23 @@ class ToolRegistry:
         self,
         metadata: ToolMetadata,
         callable_fn: Optional[Callable[..., Any]] = None,
+        overwrite: bool = False,
     ) -> None:
         """
         Register or update a tool.
 
         callable_fn is optional to support metadata-only registration.
+
+        overwrite: if False, prevents accidental overwriting of existing versions.
         """
+
+        existing = self._tools.get(metadata.tool_id)
+
+        if existing and not overwrite:
+            if existing.version == metadata.version:
+                raise ValueError(
+                    f"Tool '{metadata.tool_id}' already registered with version {metadata.version}"
+                )
 
         self._tools[metadata.tool_id] = metadata
 
@@ -103,6 +115,5 @@ class ToolRegistry:
     # --------------------------------------------------
 
     def remove_tool(self, tool_id: str) -> None:
-
         self._tools.pop(tool_id, None)
         self._callables.pop(tool_id, None)
