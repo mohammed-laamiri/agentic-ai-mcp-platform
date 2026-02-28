@@ -1,20 +1,8 @@
-"""
-Agent Execution Context schema.
-
-Shared mutable context passed between planner, agents, and executors.
-
-This enables:
-
-• execution trace tracking
-• metadata propagation
-• multi-agent coordination
-• future memory and state support
-"""
-
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
+from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class AgentExecutionContext(BaseModel):
@@ -22,39 +10,43 @@ class AgentExecutionContext(BaseModel):
     Shared execution state across the agent runtime.
     """
 
-    # --------------------------------------------------
-    # Execution metadata storage
-    # --------------------------------------------------
+    # ---------------- Execution identifiers ----------------
+    run_id: str = str(uuid4())
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    metadata: Dict[str, Any] = {}
 
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Flexible metadata storage for execution pipeline",
-    )
+    # ---------------- Execution lifecycle ----------------
+    status: str = "pending"
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    error: Optional[str] = None
 
-    # --------------------------------------------------
-    # Execution trace tracking
-    # --------------------------------------------------
+    # ---------------- Execution trace ----------------
+    last_agent_id: Optional[str] = None
+    last_execution_time: Optional[datetime] = None
 
-    last_agent_id: Optional[str] = Field(
-        default=None,
-        description="ID of the most recently executed agent",
-    )
+    # ---------------- Tool tracking ----------------
+    tool_calls: List[Dict[str, Any]] = []
+    tool_results: List[Dict[str, Any]] = []
 
-    last_execution_time: Optional[datetime] = Field(
-        default=None,
-        description="Timestamp of last agent execution",
-    )
+    # ---------------- Lifecycle methods ----------------
+    def mark_running(self) -> None:
+        self.status = "running"
+        self.started_at = datetime.utcnow()
 
-    # --------------------------------------------------
-    # Optional future extensions
-    # --------------------------------------------------
+    def mark_completed(self, status: str = "completed") -> None:
+        self.status = status
+        self.completed_at = datetime.utcnow()
 
-    session_id: Optional[str] = Field(
-        default=None,
-        description="Execution session identifier",
-    )
+    def mark_failed(self, error: str) -> None:
+        self.status = "failed"
+        self.completed_at = datetime.utcnow()
+        self.error = error
 
-    user_id: Optional[str] = Field(
-        default=None,
-        description="Optional user identifier",
-    )
+    # ---------------- Tool tracking methods ----------------
+    def add_tool_call(self, tool_call: Dict[str, Any]) -> None:
+        self.tool_calls.append(tool_call)
+
+    def add_tool_result(self, tool_result: Dict[str, Any]) -> None:
+        self.tool_results.append(tool_result)
