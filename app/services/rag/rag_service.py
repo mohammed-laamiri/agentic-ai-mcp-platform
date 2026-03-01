@@ -1,23 +1,28 @@
 """
-RAG Service (ChromaDB-backed).
+RAG Service (ChromaDB-backed, Async-Ready).
 
 Responsible for:
 - Document ingestion
 - Vector storage
 - Semantic retrieval
 
+Phase 3 Upgrade:
+- Public methods are async
+- Blocking operations executed safely in threadpool
+- Backwards architecture preserved
+
 This service does NOT:
 - Call LLMs
 - Perform orchestration
 - Execute agents
-
-This is a pure retrieval service.
 """
 
 from typing import List, Optional
 import uuid
+import asyncio
 import chromadb
 from chromadb.config import Settings
+
 from app.services.rag.embedding_service import BaseEmbeddingService
 
 
@@ -47,10 +52,10 @@ class RAGService:
         )
 
     # ----------------------------------------------------
-    # Ingestion
+    # Ingestion (Async-safe)
     # ----------------------------------------------------
 
-    def add_documents(
+    async def add_documents(
         self,
         documents: List[str],
         metadatas: Optional[List[dict]] = None,
@@ -59,10 +64,15 @@ class RAGService:
         ids = [str(uuid.uuid4()) for _ in documents]
 
         embeddings = None
-        if self._embedding_service:
-            embeddings = self._embedding_service.embed(documents)
 
-        self._collection.add(
+        if self._embedding_service:
+            embeddings = await asyncio.to_thread(
+                self._embedding_service.embed,
+                documents,
+            )
+
+        await asyncio.to_thread(
+            self._collection.add,
             ids=ids,
             documents=documents,
             metadatas=metadatas if metadatas else [{} for _ in documents],
@@ -72,25 +82,31 @@ class RAGService:
         return ids
 
     # ----------------------------------------------------
-    # Retrieval
+    # Retrieval (Async-safe)
     # ----------------------------------------------------
 
-    def retrieve(self, query: str, top_k: int = 3) -> List[str]:
+    async def retrieve(self, query: str, top_k: int = 3) -> List[str]:
 
         if self._embedding_service:
-            query_embedding = self._embedding_service.embed([query])[0]
+            query_embedding = await asyncio.to_thread(
+                self._embedding_service.embed,
+                [query],
+            )
 
-            results = self._collection.query(
-                query_embeddings=[query_embedding],
+            results = await asyncio.to_thread(
+                self._collection.query,
+                query_embeddings=[query_embedding[0]],
                 n_results=top_k,
             )
         else:
-            results = self._collection.query(
+            results = await asyncio.to_thread(
+                self._collection.query,
                 query_texts=[query],
                 n_results=top_k,
             )
 
         documents = results.get("documents", [])
+
         if not documents:
             return []
 
