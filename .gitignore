@@ -12,3 +12,8 @@ __pycache__/
 
 # VS Code
 .vscode/
+
+echo "chroma_db/" >> .gitignore
+git add .gitignore
+git commit -m "chore: ignore local chroma vector database"
+git push
