@@ -3,7 +3,7 @@ Central logging configuration for Phase 4.2 observability.
 
 - Uses ContextVar to store correlation ID per request.
 - Adds a logging.Filter to inject correlation ID into every log line.
-- Configurable for future structured logging or JSON output.
+- Safe to call multiple times (idempotent).
 """
 
 import logging
@@ -18,26 +18,27 @@ correlation_id_ctx: ContextVar[str] = ContextVar(
 class CorrelationIdFilter(logging.Filter):
     """
     Logging filter to inject correlation ID into every log record.
-
-    This allows logs to automatically include the request context.
     """
 
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         record.correlation_id = correlation_id_ctx.get()
         return True
 
 
-def configure_logging():
+def configure_logging() -> None:
     """
     Configure root logger with correlation ID filter and formatter.
-    Call this once at FastAPI startup (main.py).
+
+    Safe to call multiple times.
     """
     logger = logging.getLogger()
 
-    # StreamHandler prints logs to console (stdout)
+    # If handlers already exist, assume logging is configured
+    if logger.handlers:
+        return
+
     handler = logging.StreamHandler()
 
-    # Custom formatter including timestamp, level, correlation ID, and message
     formatter = logging.Formatter(
         "[%(asctime)s] "
         "[%(levelname)s] "
@@ -45,12 +46,7 @@ def configure_logging():
         "%(name)s: %(message)s"
     )
     handler.setFormatter(formatter)
-
-    # Add correlation ID filter to every log record
     handler.addFilter(CorrelationIdFilter())
 
-    # Add handler to root logger
     logger.addHandler(handler)
-
-    # Set default log level (can be overridden by environment)
     logger.setLevel(logging.INFO)

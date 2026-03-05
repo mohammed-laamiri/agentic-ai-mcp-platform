@@ -49,8 +49,8 @@ def planner_agent():
 
 
 @pytest.fixture
-def execution_service(agent_service):
-    return ExecutionService(agent_service=agent_service)
+def execution_service():
+    return ExecutionService()
 
 
 @pytest.fixture
@@ -67,7 +67,8 @@ def orchestrator(agent_service, planner_agent, execution_service):
 # Test: Single Agent Execution
 # ==========================================================
 
-def test_single_agent_execution(orchestrator):
+@pytest.mark.asyncio
+async def test_single_agent_execution(orchestrator):
     """
     Validate that a simple task executes successfully
     through the full Phase 1 pipeline.
@@ -83,7 +84,7 @@ def test_single_agent_execution(orchestrator):
         description="Say hello world",
     )
 
-    result = orchestrator.execute(
+    result = await orchestrator.execute(
         agent=agent,
         task_in=task,
     )

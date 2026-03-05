@@ -27,7 +27,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 # ==========================================================
-# PYTEST CONFIGURATION (FIXED — single unified section)
+# PYTEST CONFIGURATION
 # ==========================================================
 [tool.pytest.ini_options]
 
@@ -41,6 +41,9 @@ python_functions = ["test_*"]
 
 # output options
 addopts = "-v --tb=short"
+
+# async support
+asyncio_mode = "auto"
 
 # ==========================================================
 # RUFF CONFIG

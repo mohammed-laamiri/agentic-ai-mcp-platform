@@ -19,7 +19,6 @@ class TaskCreate(BaseModel):
     """
     Task creation input.
     """
-
     description: str
     input: Optional[Dict] = Field(
         default=None,
@@ -30,11 +29,14 @@ class TaskCreate(BaseModel):
 class TaskRead(BaseModel):
     """
     Task read model.
+    
+    - Includes `result` for backward compatibility
+    - Adds `execution_result` for orchestrator integration
     """
-
     id: str
     description: str
     status: TaskStatus
     result: Optional[Union[Dict, str]] = None
+    execution_result: Optional[Dict] = None  # Added for orchestrator & execution service
     input: Optional[Dict] = None
     created_at: Optional[datetime] = None

@@ -1,76 +1,78 @@
+# app/services/task_service.py
 """
-Task service.
+Task Service
 
-Responsible for:
-- Creating task records
-- Managing task lifecycle
-- Returning domain-level task responses
-
-This service represents the *task domain*.
-It does NOT know:
-- How agents work
-- How orchestration is done
+Handles task persistence and execution results.
+Compatible with both string and dict ExecutionResults.
 """
 
-from datetime import datetime
+from typing import Optional, Union, Dict
 from uuid import uuid4
+from datetime import datetime
 
 from app.schemas.task import TaskCreate, TaskRead, TaskStatus
 
 
 class TaskService:
     """
-    Handles task domain logic.
+    Task persistence layer.
 
-    This service SHOULD:
-    - Own task state transitions
-    - Return fully-formed TaskRead objects
-
-    This service SHOULD NOT:
-    - Execute agents
-    - Contain orchestration logic
+    Currently in-memory storage. 
+    Handles creation and retrieval of TaskRead objects.
     """
 
-    def create(self, task_in: TaskCreate, execution_result: dict) -> TaskRead:
-        """
-        Create a task record from execution results.
+    def __init__(self) -> None:
+        # Internal storage: task_id -> TaskRead
+        self._tasks: Dict[str, TaskRead] = {}
 
-        This method represents the *first persistence step* of a task.
-        In future iterations, this may:
-        - Write to a database
-        - Emit events
-        - Trigger audit logs
+    def create(
+        self,
+        task_in: TaskCreate,
+        execution_result: Optional[Union[str, Dict]] = None,
+    ) -> TaskRead:
+        """
+        Create a new task.
+
+        Arguments:
+        - task_in: TaskCreate object containing description and input.
+        - execution_result: Optional output from execution (string or dict).
+
+        Behavior:
+        - If execution_result is dict: extract "output".
+        - If execution_result is string: store as-is.
+        - Determines task status based on presence of execution_result.
         """
 
-        return TaskRead(
-            id=str(uuid4()),
+        task_id = str(uuid4())  # Generate unique ID
+        result_value: Optional[Union[str, Dict]] = None
+
+        # Safe extraction of output
+        if isinstance(execution_result, dict):
+            result_value = execution_result.get("output")
+        elif isinstance(execution_result, str):
+            result_value = execution_result
+        else:
+            result_value = None
+
+        # Determine task status
+        status = TaskStatus.completed if execution_result else TaskStatus.pending
+
+        # Build TaskRead object
+        task = TaskRead(
+            id=task_id,
             description=task_in.description,
-            status=TaskStatus.completed,
-            result=execution_result.get("output"),
+            status=status,
+            result=result_value,
             input=task_in.input,
             created_at=datetime.utcnow(),
         )
 
-    def complete_task(self, task: TaskRead, output: str) -> TaskRead:
-        """
-        Mark a task as completed.
-
-        This method exists for future state transitions
-        when tasks live longer than a single request.
-        """
-        task.status = TaskStatus.completed
-        task.result = output
+        # Store in internal dictionary
+        self._tasks[task_id] = task
         return task
 
-    def fail_task(self, task: TaskRead, error: str) -> TaskRead:
+    def get(self, task_id: str) -> Optional[TaskRead]:
         """
-        Mark a task as failed.
-
-        Future use cases:
-        - Agent crashes
-        - Tool failures
-        - Validation errors
+        Retrieve a task by ID.
         """
-        task.status = TaskStatus.failed
-        task.result = error
-        return task
+        return self._tasks.get(task_id)

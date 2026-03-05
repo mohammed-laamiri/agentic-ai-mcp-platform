@@ -20,8 +20,8 @@ def agent_service():
     return AgentService()  # Use a real or mocked AgentService
 
 @pytest.fixture
-def execution_service(agent_service):
-    return ExecutionService(agent_service=agent_service)
+def execution_service():
+    return ExecutionService()
 
 @pytest.fixture
 def planner_agent():
