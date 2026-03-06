@@ -21,7 +21,7 @@ from app.schemas.execution_plan import ExecutionPlan
 from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.tool_call import ToolCall
-from app.schemas.execution_context import ExecutionContext
+from app.schemas.context import ExecutionContext
 
 from app.services.agent_service import AgentService
 from app.services.task_service import TaskService
@@ -69,10 +69,11 @@ class OrchestratorService:
         plan = self._plan(agent, task_in, context)
         result = self._execute_plan(agent, task_in, plan, context)
 
-        # Persist task domain object
-        return self._task_service.create(
-            task_in=task_in,
-            execution_result=result.dict(),
+        # Create task and complete it with execution result
+        task_read = self._task_service.create_task(task_in)
+        return self._task_service.complete_task(
+            task_id=task_read.id,
+            result=result.model_dump() if hasattr(result, 'model_dump') else result.dict(),
         )
 
     def execute(self, agent: AgentRead, task_in: TaskCreate) -> ExecutionResult:
@@ -167,13 +168,13 @@ class OrchestratorService:
             exec_context = ExecutionContext(
                 session_id="session-placeholder",
                 user_id=None,
-                strategy=plan.strategy,
+                strategy=plan.strategy.value if hasattr(plan.strategy, 'value') else str(plan.strategy),
                 metadata={
                     "task_description": task_in.description,
                     "run_id": context.run_id,
                     "status": context.status,
                 },
-                tool_registry=self._tool_registry,
+                tool_registry=None,  # Don't pass the registry object directly
             )
 
             self._memory_writer.write(
