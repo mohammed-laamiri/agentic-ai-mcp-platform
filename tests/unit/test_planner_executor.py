@@ -47,12 +47,13 @@ def complex_task():
     return TaskCreate(id="task_2", description="Analyze and summarize report data")
 
 # ------------------------------
-# Tests
+# Async Tests
 # ------------------------------
 
-def test_single_agent_execution(planner_executor, lead_agent, simple_task):
+@pytest.mark.asyncio
+async def test_single_agent_execution(planner_executor, lead_agent, simple_task):
     context = AgentExecutionContext(metadata={})
-    result: ExecutionResult = planner_executor.plan_and_execute(
+    result: ExecutionResult = await planner_executor.plan_and_execute(
         agent=lead_agent,
         task=simple_task,
         context=context,
@@ -63,9 +64,10 @@ def test_single_agent_execution(planner_executor, lead_agent, simple_task):
     assert hasattr(result, "plan_reason")
     assert "simple" in result.plan_reason.lower()
 
-def test_multi_agent_execution(planner_executor, lead_agent, complex_task):
+@pytest.mark.asyncio
+async def test_multi_agent_execution(planner_executor, lead_agent, complex_task):
     context = AgentExecutionContext(metadata={})
-    result: ExecutionResult = planner_executor.plan_and_execute(
+    result: ExecutionResult = await planner_executor.plan_and_execute(
         agent=lead_agent,
         task=complex_task,
         context=context,

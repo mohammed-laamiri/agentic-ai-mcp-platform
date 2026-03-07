@@ -1,5 +1,5 @@
 """
-PlannerExecutor
+PlannerExecutor (Async-ready)
 
 High-level service that connects planning and execution layers.
 
@@ -7,11 +7,11 @@ Flow:
 
     Task
       ↓
-    PlannerAgent.plan()
+    PlannerAgent.plan()   <-- now awaited
       ↓
     ExecutionPlan
       ↓
-    ExecutionService.execute_plan()
+    ExecutionService.execute_plan(agent=...)
       ↓
     ExecutionResult
 
@@ -39,6 +39,7 @@ class PlannerExecutor:
     Orchestrates planning + execution.
 
     This is the main entrypoint used by OrchestratorService.
+    Async-ready.
     """
 
     def __init__(
@@ -53,7 +54,7 @@ class PlannerExecutor:
     # Main public API
     # ==========================================================
 
-    def plan_and_execute(
+    async def plan_and_execute(
         self,
         agent: AgentRead,
         task: TaskCreate,
@@ -67,41 +68,47 @@ class PlannerExecutor:
         Never throws unhandled exceptions.
         """
 
-        # ------------------------------------------------------
-        # Ensure context exists
-        # ------------------------------------------------------
-
         if context is None:
             context = AgentExecutionContext()
 
         # ------------------------------------------------------
-        # Step 1: Create execution plan
+        # Step 1: Create execution plan (await async plan)
         # ------------------------------------------------------
-
-        plan: ExecutionPlan = self._planner_agent.plan(
-            agent=agent,
-            task=task,
-            context=context,
-        )
+        try:
+            plan: ExecutionPlan = await self._planner_agent.plan(
+                agent=agent,
+                task=task,
+                context=context,
+            )
+        except Exception as e:
+            return ExecutionResult(
+                status="error",
+                error=f"PlannerAgent.plan() failed: {e}",
+            )
 
         # Safety guard: ensure plan is correct type
         if isinstance(plan, dict):
             plan = ExecutionPlan(**plan)
 
         # ------------------------------------------------------
-        # Step 2: Execute plan
+        # Step 2: Execute plan (pass agent explicitly)
         # ------------------------------------------------------
-
-        result = self._execution_service.execute_plan(
-            plan=plan,
-            task_in=task,
-            context=context,
-        )
+        try:
+            result = await self._execution_service.execute_plan(
+                plan=plan,
+                task_in=task,
+                context=context,
+                agent=agent,
+            )
+        except Exception as e:
+            return ExecutionResult(
+                status="error",
+                error=f"ExecutionService.execute_plan() failed: {e}",
+            )
 
         # ------------------------------------------------------
         # Step 3: Normalize result
         # ------------------------------------------------------
-
         if isinstance(result, dict):
             result = ExecutionResult(**result)
 
@@ -114,7 +121,6 @@ class PlannerExecutor:
         # ------------------------------------------------------
         # Step 4: Attach planning metadata safely
         # ------------------------------------------------------
-
         try:
             result.plan_reason = getattr(plan, "reason", None)
         except Exception:
@@ -124,5 +130,4 @@ class PlannerExecutor:
         # ------------------------------------------------------
         # Step 5: Return final result
         # ------------------------------------------------------
-
         return result

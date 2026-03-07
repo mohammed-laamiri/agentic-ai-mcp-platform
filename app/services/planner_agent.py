@@ -1,12 +1,4 @@
-"""
-# app/services/planner_agent.py (Async-ready)
-
-Responsible for:
-- SINGLE_AGENT and MULTI_AGENT planning
-- RAG-enhanced context
-- Tool assignment hooks
-"""
-
+# app/services/planner_agent.py
 from typing import List
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate

@@ -10,7 +10,6 @@ Responsible for:
 """
 
 from datetime import datetime, timezone
-from uuid import uuid4
 from typing import Optional, List
 
 from app.schemas.agent import AgentRead
@@ -49,7 +48,7 @@ class AgentService:
     # Main execution entrypoint
     # ==================================================
 
-    def execute(
+    async def execute(
         self,
         agent: AgentRead,
         task: TaskCreate,
@@ -61,24 +60,21 @@ class AgentService:
         Always returns ExecutionResult (NEVER dict).
         Safe for SINGLE_AGENT and MULTI_AGENT pipelines.
         """
-
         started_at = datetime.now(timezone.utc)
 
         try:
-            # --------------------------------------------------
             # Ensure context exists
-            # --------------------------------------------------
             if context is None:
                 context = AgentExecutionContext()
 
-            # --------------------------------------------------
+            # ----------------------
             # Retrieve RAG context safely
-            # --------------------------------------------------
+            # ----------------------
             rag_context: List[str] = []
-
             if self._rag_service and task.description:
                 try:
-                    rag_context = self._rag_service.retrieve(
+                    # Await the async RAG call
+                    rag_context = await self._rag_service.retrieve(
                         query=task.description,
                         top_k=3,
                     )
@@ -91,9 +87,9 @@ class AgentService:
                 else "No RAG context available."
             )
 
-            # --------------------------------------------------
+            # ----------------------
             # Stub agent reasoning (LLM integration later)
-            # --------------------------------------------------
+            # ----------------------
             output = (
                 f"[AGENT EXECUTION]\n"
                 f"Agent ID: {agent.id}\n"
@@ -104,16 +100,11 @@ class AgentService:
 
             finished_at = datetime.now(timezone.utc)
 
-            # --------------------------------------------------
             # Update execution context safely
-            # --------------------------------------------------
             context.last_agent_id = agent.id
             context.last_execution_time = finished_at
 
-            if "execution_trace" not in context.metadata:
-                context.metadata["execution_trace"] = []
-
-            context.metadata["execution_trace"].append(
+            context.metadata.setdefault("execution_trace", []).append(
                 {
                     "agent_id": agent.id,
                     "timestamp": finished_at.isoformat(),
@@ -121,9 +112,7 @@ class AgentService:
                 }
             )
 
-            # --------------------------------------------------
-            # Return STANDARDIZED ExecutionResult
-            # --------------------------------------------------
+            # Return standardized ExecutionResult
             return ExecutionResult(
                 tool_call_id=None,
                 tool_id=None,
@@ -136,13 +125,8 @@ class AgentService:
             )
 
         except Exception as exc:
-
             finished_at = datetime.now(timezone.utc)
-
-            # Update context safely on failure
-            if context:
-                context.metadata["last_error"] = str(exc)
-
+            context.metadata["last_error"] = str(exc) if context else str(exc)
             return ExecutionResult(
                 tool_call_id=None,
                 tool_id=None,
@@ -170,10 +154,7 @@ class AgentService:
 
         # Optional context update
         if context:
-            if "tool_execution_trace" not in context.metadata:
-                context.metadata["tool_execution_trace"] = []
-
-            context.metadata["tool_execution_trace"].append(
+            context.metadata.setdefault("tool_execution_trace", []).append(
                 {
                     "tool_id": tool_call.tool_id,
                     "status": result.status,

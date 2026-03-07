@@ -37,6 +37,39 @@ class RAGService:
         )
 
     # ----------------------------------------------------
+    # Synchronous helper (for tests / legacy code)
+    # ----------------------------------------------------
+    def add_document(
+        self,
+        content: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        document_id: Optional[str] = None,
+    ) -> None:
+        """
+        Adds a single document to the collection synchronously.
+        Ensures metadata is always a non-empty dict.
+        Accepts both 'content' and 'document_id' keywords for test compatibility.
+        """
+        doc_content = content or ""
+        doc_id = document_id or str(uuid.uuid4())
+        doc_metadata = metadata if metadata is not None else {}
+
+        # ChromaDB requires metadata to be a dict (cannot be None)
+        if not doc_metadata:
+            doc_metadata = {"_placeholder": True}
+
+        embeddings = None
+        if self._embedding_service:
+            embeddings = self._embedding_service.embed([doc_content])
+
+        self._collection.add(
+            ids=[doc_id],
+            documents=[doc_content],
+            metadatas=[doc_metadata],
+            embeddings=embeddings,
+        )
+
+    # ----------------------------------------------------
     # Ingestion (Async-safe)
     # ----------------------------------------------------
     async def add_documents(
@@ -45,6 +78,11 @@ class RAGService:
         metadatas: Optional[List[dict]] = None,
     ) -> List[str]:
         ids = [str(uuid.uuid4()) for _ in documents]
+
+        # Ensure all metadatas are non-empty dicts
+        safe_metadatas = []
+        for md in (metadatas or [{} for _ in documents]):
+            safe_metadatas.append(md if md else {"_placeholder": True})
 
         embeddings = None
         if self._embedding_service:
@@ -57,7 +95,7 @@ class RAGService:
             self._collection.add,
             ids=ids,
             documents=documents,
-            metadatas=metadatas or [{} for _ in documents],
+            metadatas=safe_metadatas,
             embeddings=embeddings,
         )
 
