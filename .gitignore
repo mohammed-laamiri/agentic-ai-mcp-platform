@@ -12,3 +12,10 @@ __pycache__/
 
 # VS Code
 .vscode/
+
+# Django
+*.sqlite3
+frontend/db.sqlite3
+
+# uv
+uv.lock
