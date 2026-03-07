@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.tool import ToolCreate, ToolRead
-from app.services.tool_registry import ToolRegistry
+from app.services.tool_registry import ToolRegistry, ToolMetadata
 from app.api.deps import get_tool_registry
 
 router = APIRouter(tags=["Tools"])
@@ -12,6 +12,14 @@ router = APIRouter(tags=["Tools"])
 # ----------------------------
 # Tool Endpoints
 # ----------------------------
+
+@router.get("/health", status_code=200)
+def tools_health() -> dict:
+    """
+    Health check endpoint for the tools router.
+    """
+    return {"status": "ok", "router": "tools"}
+
 
 @router.post("/", response_model=ToolRead, status_code=status.HTTP_201_CREATED)
 def register_tool(
@@ -22,8 +30,21 @@ def register_tool(
     Register or update a tool in the registry.
     """
     try:
-        tool = registry.register_tool(metadata=tool_in)
-        return ToolRead.model_validate(tool)  # Pydantic v2 compatible
+        # Convert Pydantic model to ToolMetadata dataclass
+        metadata = ToolMetadata(
+            tool_id=tool_in.tool_id,
+            name=tool_in.name,
+            version=tool_in.version,
+            description=tool_in.description,
+        )
+        registry.register_tool(metadata=metadata)
+        # Return the registered tool
+        return ToolRead(
+            tool_id=metadata.tool_id,
+            name=metadata.name,
+            version=metadata.version,
+            description=metadata.description,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -39,7 +60,12 @@ def get_tool(
     tool = registry.get_tool(tool_id)
     if tool is None:
         raise HTTPException(status_code=404, detail="Tool not found")
-    return ToolRead.model_validate(tool)
+    return ToolRead(
+        tool_id=tool.tool_id,
+        name=tool.name,
+        version=tool.version,
+        description=tool.description,
+    )
 
 
 @router.get("/", response_model=List[ToolRead])
@@ -50,12 +76,12 @@ def list_tools(
     List all registered tools.
     """
     tools = registry.list_tools()
-    return [ToolRead.model_validate(t) for t in tools]
-
-
-@router.get("/health", status_code=200)
-def tools_health() -> dict:
-    """
-    Health check endpoint for the tools router.
-    """
-    return {"status": "ok", "router": "tools"}
+    return [
+        ToolRead(
+            tool_id=t.tool_id,
+            name=t.name,
+            version=t.version,
+            description=t.description,
+        )
+        for t in tools
+    ]

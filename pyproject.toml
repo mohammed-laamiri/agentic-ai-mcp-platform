@@ -6,11 +6,19 @@ requires-python = ">=3.12"
 
 dependencies = [
     "fastapi>=0.101,<0.110",
-    "pydantic<2",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
     "typing-extensions>=4.15.0",
     "uvicorn>=0.23",
+    "sqlmodel>=0.0.18",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.24,<0.28",
+    "pytest>=9.0.2",
+]
