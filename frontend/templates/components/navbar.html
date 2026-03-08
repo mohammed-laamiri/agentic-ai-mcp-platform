@@ -1,0 +1,36 @@
+<nav class="bg-indigo-600 text-white shadow-lg">
+    <div class="container mx-auto px-4">
+        <div class="flex items-center justify-between h-16">
+            <div class="flex items-center">
+                <a href="{% url 'dashboard:index' %}" class="font-bold text-xl">
+                    MCP Platform
+                </a>
+            </div>
+
+            <div class="flex items-center space-x-4">
+                <a href="{% url 'dashboard:index' %}"
+                   class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-500 {% if request.resolver_match.app_name == 'dashboard' %}bg-indigo-700{% endif %}">
+                    Dashboard
+                </a>
+                <a href="{% url 'tasks:list' %}"
+                   class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-500 {% if request.resolver_match.app_name == 'tasks' %}bg-indigo-700{% endif %}">
+                    Tasks
+                </a>
+                <a href="{% url 'tools:list' %}"
+                   class="px-3 py-2 rounded-md text-sm font-medium hover:bg-indigo-500 {% if request.resolver_match.app_name == 'tools' %}bg-indigo-700{% endif %}">
+                    Tools
+                </a>
+            </div>
+
+            <!-- Health indicator -->
+            <div id="health-indicator"
+                 hx-get="{% url 'dashboard:health_check' %}"
+                 hx-trigger="load, every 30s"
+                 hx-swap="innerHTML">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-400 text-white">
+                    Checking...
+                </span>
+            </div>
+        </div>
+    </div>
+</nav>
