@@ -12,9 +12,9 @@ This model is intentionally minimal for now and will evolve to support:
 """
 
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ExecutionResult(BaseModel):
@@ -98,9 +98,8 @@ class ExecutionResult(BaseModel):
     )
 
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="Execution creation timestamp (UTC)",
     )
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

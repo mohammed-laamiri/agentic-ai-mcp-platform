@@ -73,11 +73,11 @@ class MemoryWriter:
             "input": getattr(execution_result, "input", None),
             "output": getattr(execution_result, "output", None),
             "status": getattr(execution_result, "status", None),
-            "tool_calls": [tc.dict() for tc in getattr(agent_context, "tool_calls", [])],
+            "tool_calls": [tc.model_dump() for tc in getattr(agent_context, "tool_calls", [])],
             "child_results": getattr(execution_result, "child_results", None),
             "errors": getattr(execution_result, "errors", None),
             "metadata": getattr(execution_result, "metadata", None),
-            "session_context": session_context.dict() if session_context else None,
+            "session_context": session_context.model_dump() if session_context else None,
             "started_at": getattr(execution_result, "started_at", None),
             "finished_at": getattr(execution_result, "finished_at", None),
         }

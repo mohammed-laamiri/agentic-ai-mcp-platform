@@ -10,7 +10,7 @@ Architectural intent:
 - Collects execution metadata and tool spans
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
@@ -30,7 +30,7 @@ class AgentExecutionContext(BaseModel):
     """
 
     run_id: str = Field(default_factory=lambda: str(uuid4()))
-    started_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: Optional[datetime] = None
     status: str = Field(default="running")
 
@@ -76,4 +76,4 @@ class AgentExecutionContext(BaseModel):
         Mark execution as finished.
         """
         self.status = status
-        self.finished_at = datetime.utcnow()
+        self.finished_at = datetime.now(timezone.utc)

@@ -1,6 +1,6 @@
 from typing import Optional, Dict, List, Any
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.schemas.task import TaskCreate, TaskRead
 from app.models.task import Task  # simple class or ORM
@@ -17,7 +17,7 @@ class TaskService:
 
     def create_task(self, task_create: TaskCreate) -> TaskRead:
         task_id = str(uuid4())
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         task = Task(
             id=task_id,
             name=task_create.name,
@@ -49,8 +49,8 @@ class TaskService:
             return None
         task.status = "completed"
         task.result = result or {}
-        task.completed_at = datetime.utcnow()
-        task.updated_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
+        task.updated_at = datetime.now(timezone.utc)
         return TaskRead(**vars(task))
 
     def fail_task(self, task_id: str, error: str) -> Optional[TaskRead]:
@@ -59,6 +59,6 @@ class TaskService:
             return None
         task.status = "failed"
         task.result = {"error": error}
-        task.completed_at = datetime.utcnow()
-        task.updated_at = datetime.utcnow()
+        task.completed_at = datetime.now(timezone.utc)
+        task.updated_at = datetime.now(timezone.utc)
         return TaskRead(**vars(task))
