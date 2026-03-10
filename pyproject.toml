@@ -17,6 +17,11 @@ dependencies = [
 testpaths = ["tests"]
 pythonpath = ["."]
 
+[tool.uv.workspace]
+members = [
+    "frontend",
+]
+
 [dependency-groups]
 dev = [
     "httpx>=0.24,<0.28",
