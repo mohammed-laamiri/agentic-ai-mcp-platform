@@ -5,11 +5,15 @@ These tests validate:
 - Tool registration
 - Retrieval
 - Listing
+- Executor binding
+- Removal
 
 No mocks are used.
 """
 
-from app.services.tool_registry import ToolRegistry
+import pytest
+
+from app.services.tool_registry import ToolRegistry, ToolMetadata
 from app.schemas.tool import ToolCreate
 
 
@@ -84,3 +88,50 @@ def test_list_tools():
     assert len(tools) == 2
     tool_ids = {t.tool_id for t in tools}
     assert tool_ids == {"search", "calculator"}
+
+
+def test_bind_executor():
+    """bind_executor attaches an executor to a registered tool."""
+    registry = ToolRegistry()
+    meta = ToolMetadata(tool_id="x", name="X", version="1.0", description="X")
+    registry.register_tool(meta)
+    registry.bind_executor("x", lambda a, b: a + b)
+    fn = registry.get_executor("x")
+    assert fn is not None
+    assert fn(1, 2) == 3
+
+
+def test_bind_executor_raises_when_tool_not_registered():
+    """bind_executor raises ValueError when tool_id is not registered."""
+    registry = ToolRegistry()
+    with pytest.raises(ValueError, match="not registered"):
+        registry.bind_executor("missing", lambda: None)
+
+
+def test_get_executor_returns_none_when_not_bound():
+    """get_executor returns None when no executor was bound."""
+    registry = ToolRegistry()
+    meta = ToolMetadata(tool_id="y", name="Y", version="1.0", description="Y")
+    registry.register_tool(meta)
+    assert registry.get_executor("y") is None
+
+
+def test_has_tool():
+    """has_tool returns True for registered tool, False otherwise."""
+    registry = ToolRegistry()
+    registry.register_tool(
+        ToolCreate(tool_id="z", name="Z", version="1.0", description="Z")
+    )
+    assert registry.has_tool("z") is True
+    assert registry.has_tool("missing") is False
+
+
+def test_remove_tool():
+    """remove_tool removes metadata and executor."""
+    registry = ToolRegistry()
+    meta = ToolMetadata(tool_id="r", name="R", version="1.0", description="R")
+    registry.register_tool(meta)
+    registry.bind_executor("r", lambda: None)
+    registry.remove_tool("r")
+    assert registry.has_tool("r") is False
+    assert registry.get_executor("r") is None

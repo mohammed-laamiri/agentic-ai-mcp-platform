@@ -226,8 +226,9 @@ class OrchestratorService:
 
         for agent in plan.steps:
             intermediate_task = TaskCreate(
+                name=task_in.name or "intermediate",
                 description=current_input,
-                input=current_input,
+                input={"description": current_input} if current_input else {},
             )
 
             raw_result = self._agent_service.execute(agent, intermediate_task, context)
@@ -260,8 +261,9 @@ class OrchestratorService:
             # Each agent gets its own isolated context
             context = AgentExecutionContext(run_id=parent_context.run_id)
             intermediate_task = TaskCreate(
+                name=task_in.name or "intermediate",
                 description=task_in.description,
-                input=task_in.description,
+                input={"description": task_in.description} if task_in.description else {},
             )
 
             raw_result = self._agent_service.execute(agent, intermediate_task, context)
