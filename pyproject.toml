@@ -16,6 +16,9 @@ dependencies = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+filterwarnings = [
+    "ignore:The 'app' shortcut is now deprecated:DeprecationWarning",
+]
 
 [tool.uv.workspace]
 members = [
