@@ -1,5 +1,7 @@
 """
 Unit tests for OrchestratorService.
+
+Tests both sync and async interfaces.
 """
 
 import pytest
@@ -15,8 +17,12 @@ from app.schemas.execution_plan import ExecutionPlan
 from app.schemas.execution_strategy import ExecutionStrategy
 
 
-def test_orchestrator_run_happy_path():
-    """Test orchestrator executes a task and returns result."""
+# ==================================================
+# Sync Tests (backward compatibility)
+# ==================================================
+
+def test_orchestrator_run_sync_happy_path():
+    """Test orchestrator.run_sync executes a task and returns result."""
     task_service = TaskService()
     agent_service = AgentService()
     tool_registry = ToolRegistry()
@@ -32,16 +38,15 @@ def test_orchestrator_run_happy_path():
     agent = AgentRead(id="agent-1", name="TestAgent")
     task = TaskCreate(name="Orchestrated Task", description="Orchestrated task")
 
-    result = orchestrator.run(agent=agent, task_in=task)
+    result = orchestrator.run_sync(agent=agent, task_in=task)
 
     assert result.name == "Orchestrated Task"
     assert result.description == "Orchestrated task"
-    # Result is stored after execution
     assert result.result is not None
 
 
-def test_orchestrator_execute_returns_execution_result():
-    """Test orchestrator.execute returns ExecutionResult without persistence."""
+def test_orchestrator_execute_sync_returns_execution_result():
+    """Test orchestrator.execute_sync returns ExecutionResult without persistence."""
     task_service = TaskService()
     agent_service = AgentService()
     tool_registry = ToolRegistry()
@@ -57,14 +62,13 @@ def test_orchestrator_execute_returns_execution_result():
     agent = AgentRead(id="agent-1", name="TestAgent")
     task = TaskCreate(name="Execute Task", description="Task for execute method")
 
-    result = orchestrator.execute(agent=agent, task_in=task)
+    result = orchestrator.execute_sync(agent=agent, task_in=task)
 
-    # execute() returns ExecutionResult, not TaskRead
     assert result.execution_id is not None
     assert result.status == "SUCCESS"
 
 
-def test_orchestrator_execute_multi_agent_branching():
+def test_orchestrator_execute_sync_multi_agent_branching():
     """Orchestrator with complex task uses MULTI_AGENT and aggregates child results."""
     task_service = TaskService()
     agent_service = AgentService()
@@ -81,7 +85,7 @@ def test_orchestrator_execute_multi_agent_branching():
     agent = AgentRead(id="a1", name="Agent1")
     task = TaskCreate(name="Complex", description="Analyze and compare the data")
 
-    result = orchestrator.execute(agent=agent, task_in=task)
+    result = orchestrator.execute_sync(agent=agent, task_in=task)
 
     assert result.execution_id is not None
     assert result.child_results is not None
@@ -112,7 +116,7 @@ def test_orchestrator_validate_plan_single_agent_with_steps_raises():
     context = AgentExecutionContext()
 
     with pytest.raises(ValueError, match="SINGLE_AGENT must not define steps"):
-        orchestrator._execute_plan(agent, task, plan, context)
+        orchestrator._execute_plan_sync(agent, task, plan, context)
 
 
 def test_orchestrator_validate_plan_multi_agent_requires_two_steps():
@@ -138,13 +142,12 @@ def test_orchestrator_validate_plan_multi_agent_requires_two_steps():
     context = AgentExecutionContext()
 
     with pytest.raises(ValueError, match="MULTI_AGENT requires at least two"):
-        orchestrator._execute_plan(agent, task, plan, context)
+        orchestrator._execute_plan_sync(agent, task, plan, context)
 
 
-def test_orchestrator_execute_with_tool_calls_in_context():
+def test_orchestrator_execute_sync_with_tool_calls_in_context():
     """When agent returns tool_calls, orchestrator runs execute_batch and merges tool results."""
     from unittest.mock import MagicMock
-    from app.schemas.execution import ExecutionResult
 
     task_service = TaskService()
     tool_registry = ToolRegistry()
@@ -170,13 +173,13 @@ def test_orchestrator_execute_with_tool_calls_in_context():
     )
     agent = AgentRead(id="a1", name="A1")
     task = TaskCreate(name="T", description="Simple task")
-    result = orchestrator.execute(agent=agent, task_in=task)
+    result = orchestrator.execute_sync(agent=agent, task_in=task)
     assert result.execution_id is not None
     # Tool phase ran (batch executed; may have child_results from failed tool)
     assert result.child_results is not None
 
 
-def test_orchestrator_execute_exception_marks_context_failed():
+def test_orchestrator_execute_sync_exception_marks_context_failed():
     """When execution raises, context is marked failed and exception is re-raised."""
     from unittest.mock import MagicMock
 
@@ -194,4 +197,114 @@ def test_orchestrator_execute_exception_marks_context_failed():
     agent = AgentRead(id="a1", name="A1")
     task = TaskCreate(name="T", description="Simple")
     with pytest.raises(RuntimeError, match="Agent failed"):
-        orchestrator.execute(agent=agent, task_in=task)
+        orchestrator.execute_sync(agent=agent, task_in=task)
+
+
+# ==================================================
+# Async Tests
+# ==================================================
+
+@pytest.mark.asyncio
+async def test_orchestrator_run_async_happy_path():
+    """Test orchestrator.run (async) executes a task and returns result."""
+    task_service = TaskService()
+    agent_service = AgentService()
+    tool_registry = ToolRegistry()
+    memory_writer = MemoryWriter()
+
+    orchestrator = OrchestratorService(
+        task_service=task_service,
+        agent_service=agent_service,
+        tool_registry=tool_registry,
+        memory_writer=memory_writer,
+    )
+
+    agent = AgentRead(id="agent-1", name="TestAgent")
+    task = TaskCreate(name="Async Task", description="Async orchestrated task")
+
+    result = await orchestrator.run(agent=agent, task_in=task)
+
+    assert result.name == "Async Task"
+    assert result.description == "Async orchestrated task"
+    assert result.result is not None
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_execute_async_returns_execution_result():
+    """Test orchestrator.execute (async) returns ExecutionResult."""
+    task_service = TaskService()
+    agent_service = AgentService()
+    tool_registry = ToolRegistry()
+    memory_writer = MemoryWriter()
+
+    orchestrator = OrchestratorService(
+        task_service=task_service,
+        agent_service=agent_service,
+        tool_registry=tool_registry,
+        memory_writer=memory_writer,
+    )
+
+    agent = AgentRead(id="agent-1", name="TestAgent")
+    task = TaskCreate(name="Async Execute Task", description="Task for async execute")
+
+    result = await orchestrator.execute(agent=agent, task_in=task)
+
+    assert result.execution_id is not None
+    assert result.status == "SUCCESS"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_stream_execute_yields_events():
+    """Test orchestrator.stream_execute yields execution events."""
+    from app.schemas.execution_event import ExecutionEventType
+
+    task_service = TaskService()
+    agent_service = AgentService()
+    tool_registry = ToolRegistry()
+    memory_writer = MemoryWriter()
+
+    orchestrator = OrchestratorService(
+        task_service=task_service,
+        agent_service=agent_service,
+        tool_registry=tool_registry,
+        memory_writer=memory_writer,
+    )
+
+    agent = AgentRead(id="agent-1", name="TestAgent")
+    task = TaskCreate(name="Stream Task", description="Task for streaming")
+
+    events = []
+    async for event in orchestrator.stream_execute(agent=agent, task_in=task):
+        events.append(event)
+
+    # Check we got expected event types
+    event_types = [e.type for e in events]
+    assert ExecutionEventType.PLANNING_STARTED in event_types
+    assert ExecutionEventType.PLAN_CREATED in event_types
+    assert ExecutionEventType.EXECUTION_STARTED in event_types
+    assert ExecutionEventType.EXECUTION_COMPLETED in event_types
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_execute_async_multi_agent():
+    """Test async execution with multi-agent strategy."""
+    task_service = TaskService()
+    agent_service = AgentService()
+    tool_registry = ToolRegistry()
+    memory_writer = MemoryWriter()
+
+    orchestrator = OrchestratorService(
+        task_service=task_service,
+        agent_service=agent_service,
+        tool_registry=tool_registry,
+        memory_writer=memory_writer,
+    )
+
+    agent = AgentRead(id="a1", name="Agent1")
+    task = TaskCreate(name="Complex", description="Analyze and compare the data")
+
+    result = await orchestrator.execute(agent=agent, task_in=task)
+
+    assert result.execution_id is not None
+    assert result.child_results is not None
+    assert len(result.child_results) >= 2

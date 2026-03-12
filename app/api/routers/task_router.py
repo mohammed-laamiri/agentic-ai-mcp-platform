@@ -74,7 +74,7 @@ def fail_task(task_id: str, error: str, service: TaskService = Depends(get_task_
 
 
 @router.post("/{task_id}/execute", response_model=TaskRead)
-def execute_task(
+async def execute_task(
     task_id: str,
     service: TaskService = Depends(get_task_service),
     orchestrator: OrchestratorService = Depends(get_orchestrator),
@@ -99,9 +99,8 @@ def execute_task(
         priority=task.priority,
     )
 
-    # Execute via orchestrator (this creates a new task and completes it)
-    # We need to update the original task instead
-    result = orchestrator.execute(agent=default_agent, task_in=task_create)
+    # Execute via orchestrator (async)
+    result = await orchestrator.execute(agent=default_agent, task_in=task_create)
 
     # Complete the original task with the execution result
     completed_task = service.complete_task(

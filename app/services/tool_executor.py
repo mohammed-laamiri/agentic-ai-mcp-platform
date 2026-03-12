@@ -75,7 +75,11 @@ class ToolExecutor:
 
         # Determine callable
         if tool_fn is None:
-            # Default stub execution
+            # Try to get executor from registry
+            tool_fn = self._tool_registry.get_executor(tool_call.tool_id)
+
+        if tool_fn is None:
+            # Default stub execution if no executor bound
             def tool_fn_stub(**kwargs: Any) -> str:
                 return f"[STUB TOOL OUTPUT] Tool '{tool_meta.name}' executed with input: {kwargs}"
             tool_fn = tool_fn_stub

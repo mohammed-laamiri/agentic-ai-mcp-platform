@@ -8,9 +8,11 @@ This module implements:
 - SINGLE_AGENT for simple tasks
 - MULTI_AGENT (sequential) for complex tasks
 - Tool assignment hooks for future integration
+
+Async-ready for future LLM-based planning.
 """
 
-from typing import List
+from typing import List, Optional
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
@@ -18,6 +20,7 @@ from app.schemas.execution_plan import ExecutionPlan
 from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.tool_call import ToolCall
+from app.services.rag.rag_service import RAGService
 
 
 class PlannerAgent:
@@ -28,23 +31,52 @@ class PlannerAgent:
     - Chooses execution strategy
     - Defines agent order
     - Declares tool calls (hooks only, no execution here)
+
+    Supports both sync and async interfaces for backward compatibility.
     """
 
-    def plan(
+    def __init__(self, rag_service: Optional[RAGService] = None) -> None:
+        self._rag_service = rag_service
+
+    async def plan(
         self,
         agent: AgentRead,
         task: TaskCreate,
         context: AgentExecutionContext | None = None,
     ) -> ExecutionPlan:
         """
-        Produce an execution plan.
+        Produce an execution plan (async).
 
         Current rules:
         - Default: SINGLE_AGENT
         - Complex tasks: MULTI_AGENT (sequential)
-        """
 
-        task_text = task.description.lower()
+        Future: LLM-based planning with RAG context.
+        """
+        # Placeholder for future async LLM call
+        return self._create_plan(agent, task, context)
+
+    def plan_sync(
+        self,
+        agent: AgentRead,
+        task: TaskCreate,
+        context: AgentExecutionContext | None = None,
+    ) -> ExecutionPlan:
+        """
+        Synchronous version for backward compatibility.
+        """
+        return self._create_plan(agent, task, context)
+
+    def _create_plan(
+        self,
+        agent: AgentRead,
+        task: TaskCreate,
+        context: AgentExecutionContext | None = None,
+    ) -> ExecutionPlan:
+        """
+        Internal plan creation logic.
+        """
+        task_text = (task.description or "").lower()
         is_complex = any(
             keyword in task_text
             for keyword in [
