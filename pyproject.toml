@@ -18,6 +18,7 @@ dependencies = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+asyncio_mode = "auto"
 filterwarnings = [
     "ignore:The 'app' shortcut is now deprecated:DeprecationWarning",
 ]
@@ -42,4 +43,5 @@ members = [
 dev = [
     "httpx>=0.24,<0.28",
     "pytest>=9.0.2",
+    "pytest-asyncio>=0.23.0",
 ]
