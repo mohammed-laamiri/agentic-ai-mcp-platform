@@ -1,132 +1,139 @@
-# app/api/deps.py
-
 """
-Dependency injection module for FastAPI.
+Dependency injection container.
 
-Responsibilities:
-- Provide application-wide singleton services
-- Wire database session to services
-- Support dependency injection for routers and endpoints
-- Keep services decoupled from API endpoints
+Provides singleton access to core services.
+
+Architecture guarantees:
+- Singleton lifecycle for core services
+- Clean dependency graph
+- Compatible with MCP Tool Layer
 """
 
 from functools import lru_cache
-from fastapi import Depends
-from sqlmodel import Session
 
-from app.core.config import get_settings, Settings
-from app.core.db import get_session
+from app.core.config import Settings
+
+# Core services
+from app.services.rag.rag_service import RAGService
 from app.services.task_service import TaskService
 from app.services.agent_service import AgentService
 from app.services.planner_agent import PlannerAgent
-from app.services.tool_registry import ToolRegistry
-from app.services.memory_writer import MemoryWriter
 from app.services.orchestrator import OrchestratorService
+from app.services.memory_writer import MemoryWriter
+
+# Execution layer
+from app.services.execution.execution_service import ExecutionService
+
+# Tool layer
+from app.services.tool_registry import ToolRegistry
 from app.services.tool_execution_engine import ToolExecutionEngine
 
-
-# ==================================================
-# Database session dependency
-# ==================================================
-def get_db_session(session: Session = Depends(get_session)) -> Session:
-    """
-    Provides a SQLModel Session per request.
-
-    Usage:
-        db: Session = Depends(get_db_session)
-    """
-    return session
+# Runtime singletons
+from app.runtime.runtime import tool_registry, tool_execution_engine
 
 
-# ==================================================
-# Application settings dependency
-# ==================================================
+# =====================================================
+# Application Settings
+# =====================================================
+
 @lru_cache
 def get_app_settings() -> Settings:
     """
-    Returns the singleton application settings.
-
-    Cached for performance across requests.
+    Application settings singleton.
     """
-    return get_settings()
+    return Settings()
 
 
-# ==================================================
-# Service dependencies
-# ==================================================
+# =====================================================
+# Tool Runtime Singletons
+# =====================================================
+
+def get_tool_registry() -> ToolRegistry:
+    """
+    Global ToolRegistry singleton.
+    """
+    return tool_registry
+
+
+def get_tool_execution_engine() -> ToolExecutionEngine:
+    """
+    Global ToolExecutionEngine singleton.
+    """
+    return tool_execution_engine
+
+
+# =====================================================
+# RAG Service Singleton
+# =====================================================
+
+_rag_service = RAGService()
+
+
+def get_rag_service() -> RAGService:
+    """
+    Global RAG service singleton.
+    """
+    return _rag_service
+
+
+# =====================================================
+# Core Services
+# =====================================================
 
 @lru_cache
-def get_task_service(session: Session = Depends(get_db_session)) -> TaskService:
-    """
-    Returns a TaskService instance wired with a database session.
-
-    Ensures all TaskService operations persist to the DB.
-    """
-    return TaskService(session=session)
+def get_task_service() -> TaskService:
+    return TaskService()
 
 
 @lru_cache
 def get_agent_service() -> AgentService:
-    """
-    Returns a singleton AgentService instance.
-    """
-    return AgentService()
+    return AgentService(
+        rag_service=get_rag_service(),
+    )
 
 
 @lru_cache
 def get_planner_agent() -> PlannerAgent:
-    """
-    Returns a singleton PlannerAgent instance.
-    """
-    return PlannerAgent()
+    return PlannerAgent(
+        rag_service=get_rag_service(),
+    )
 
+
+# =====================================================
+# Execution Layer
+# =====================================================
 
 @lru_cache
-def get_tool_registry() -> ToolRegistry:
+def get_execution_service() -> ExecutionService:
     """
-    Returns a singleton ToolRegistry instance.
+    Execution dispatcher singleton.
     """
-    return ToolRegistry()
+    return ExecutionService(
+        agent_service=get_agent_service(),
+        tool_engine=get_tool_execution_engine(),  # ← FIXED
+    )
 
+
+# =====================================================
+# Orchestrator (TOP LEVEL)
+# =====================================================
 
 @lru_cache
 def get_memory_writer() -> MemoryWriter:
     """
-    Returns a singleton MemoryWriter instance.
+    Memory writer singleton.
     """
     return MemoryWriter()
 
 
 @lru_cache
-def get_tool_execution_engine(tool_registry: ToolRegistry = Depends(get_tool_registry)) -> ToolExecutionEngine:
+def get_orchestrator() -> OrchestratorService:
     """
-    Returns a ToolExecutionEngine instance wired with ToolRegistry.
-    """
-    return ToolExecutionEngine(tool_registry=tool_registry)
-
-
-@lru_cache
-def get_orchestrator(
-    task_service: TaskService = Depends(get_task_service),
-    agent_service: AgentService = Depends(get_agent_service),
-    tool_registry: ToolRegistry = Depends(get_tool_registry),
-    memory_writer: MemoryWriter = Depends(get_memory_writer),
-    planner_agent: PlannerAgent = Depends(get_planner_agent),
-) -> OrchestratorService:
-    """
-    Returns a fully wired OrchestratorService instance.
-
-    Dependencies:
-    - TaskService: handles persistence
-    - AgentService: executes agents
-    - ToolRegistry: tracks available tools
-    - MemoryWriter: writes memory to storage
-    - PlannerAgent: generates execution plans
+    Top-level orchestrator singleton.
     """
     return OrchestratorService(
-        task_service=task_service,
-        agent_service=agent_service,
-        tool_registry=tool_registry,
-        memory_writer=memory_writer,
-        planner_agent=planner_agent,
+        task_service=get_task_service(),
+        agent_service=get_agent_service(),
+        planner_agent=get_planner_agent(),
+        execution_service=get_execution_service(),
     )

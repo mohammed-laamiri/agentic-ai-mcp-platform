@@ -1,7 +1,6 @@
-# app/api/routers/health_router.py
 from fastapi import APIRouter, Depends
-from app.core.config import Settings
 from app.api.deps import get_app_settings
+from app.core.config import Settings
 
 router = APIRouter(tags=["system"])
 

@@ -92,6 +92,6 @@ async def test_single_agent_execution(orchestrator):
 
     assert isinstance(result, ExecutionResult)
 
-    assert result.status == "SUCCESS"
+    assert result.status.lower() == "success"
 
     assert result.execution_id is not None

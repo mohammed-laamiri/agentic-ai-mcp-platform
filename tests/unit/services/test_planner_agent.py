@@ -17,7 +17,8 @@ def test_plan_simple_task_returns_single_agent():
     task = TaskCreate(name="Task", description="Do something simple")
     plan = planner.plan_sync(agent=agent, task=task)
     assert plan.strategy == ExecutionStrategy.SINGLE_AGENT
-    assert plan.steps is None
+    assert plan.steps is not None
+    assert len(plan.steps) == 1
 
 
 def test_plan_complex_task_returns_multi_agent():

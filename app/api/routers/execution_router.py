@@ -61,9 +61,8 @@ async def execute_task(
 ):
     try:
         agent = AgentRead(
-            id=1,
+            id="default-agent-1",
             name="default-agent",
-            description="Default execution agent",
         )
         result: ExecutionResult = await orchestrator.execute(
             agent=agent,
@@ -89,9 +88,8 @@ async def stream_execute_task(
     Stream execution events as Server-Sent Events (SSE).
     """
     agent = AgentRead(
-        id=1,
+        id="default-agent-1",
         name="default-agent",
-        description="Default execution agent",
     )
 
     async def event_generator():

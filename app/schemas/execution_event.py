@@ -1,42 +1,61 @@
 """
-Execution Event Schema.
+Execution Event Schema
 
-Used for streaming execution progress to clients.
+Represents structured streaming events emitted during execution.
+
+Used by:
+- ExecutionService (emits events)
+- OrchestratorService (forwards events)
+- API layer (formats SSE)
 """
 
 from enum import Enum
-from typing import Optional, Any, List, Dict
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional, Union
 
+from pydantic import BaseModel
+
+
+# ==========================================================
+# Event Types
+# ==========================================================
 
 class ExecutionEventType(str, Enum):
-    """Types of events emitted during execution."""
     PLANNING_STARTED = "planning_started"
     PLAN_CREATED = "plan_created"
     EXECUTION_STARTED = "execution_started"
-    AGENT_STARTED = "agent_started"
-    AGENT_COMPLETED = "agent_completed"
-    TOOL_STARTED = "tool_started"
-    TOOL_COMPLETED = "tool_completed"
+    PLAN_EXECUTION_STARTED = "plan_execution_started"
+    STEP_STARTED = "step_started"
+    TOKEN_CHUNK = "token_chunk" 
+    STEP_COMPLETED = "step_completed"
     EXECUTION_COMPLETED = "execution_completed"
     EXECUTION_FAILED = "execution_failed"
 
 
+# ==========================================================
+# Base Execution Event
+# ==========================================================
+
 class ExecutionEvent(BaseModel):
     """
-    Event emitted during task execution.
+    Strongly-typed execution event.
 
-    Used for real-time streaming of execution progress.
+    Fields:
+    - type: Event type
+    - step_index: Optional step index
+    - strategy: Execution strategy (if applicable)
+    - steps: Plan steps (if applicable)
+    - result: Final execution result (if applicable)
+    - error: Error message (if failed)
+    - metadata: Flexible extension field
     """
 
-    type: ExecutionEventType = Field(..., description="Type of execution event")
+    type: ExecutionEventType
 
-    # Optional fields based on event type
-    strategy: Optional[str] = Field(default=None, description="Execution strategy")
-    steps: Optional[List[Dict[str, Any]]] = Field(default=None, description="Plan steps")
-    agent_id: Optional[str] = Field(default=None, description="Agent ID")
-    agent_name: Optional[str] = Field(default=None, description="Agent name")
-    tool_id: Optional[str] = Field(default=None, description="Tool ID")
-    output: Optional[Any] = Field(default=None, description="Output data")
-    error: Optional[str] = Field(default=None, description="Error message")
-    metadata: Optional[Dict[str, Any]] = Field(default=None, description="Additional metadata")
+    step_id: Optional[Union[str, int]] = None
+    step_name: Optional[str] = None
+    strategy: Optional[str] = None
+    token: Optional[str] = None
+    steps: Optional[List[Dict[str, Any]]] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None

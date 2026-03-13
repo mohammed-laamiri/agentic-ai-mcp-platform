@@ -7,12 +7,14 @@ Handles execution of agent plans:
 - Streaming execution
 - Token-level events
 """
-# app/services/execution/execution_service.py
 from typing import AsyncGenerator, List, Optional
+from uuid import uuid4
+
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
 from app.schemas.execution import ExecutionResult
 from app.schemas.execution_plan import ExecutionPlan
+from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.execution_event import ExecutionEvent, ExecutionEventType
 
@@ -52,6 +54,7 @@ class ExecutionService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> AsyncGenerator[ExecutionEvent, None]:
+        execution_id = str(uuid4())
         try:
             yield ExecutionEvent(type=ExecutionEventType.EXECUTION_STARTED)
             step_outputs: List[str] = []
@@ -91,7 +94,11 @@ class ExecutionService:
                 )
 
             final_output = "\n".join(step_outputs)
-            final_result = ExecutionResult(status="success", output=final_output)
+            final_result = ExecutionResult(
+                execution_id=execution_id,
+                status="success",
+                output=final_output,
+            )
 
             yield ExecutionEvent(
                 type=ExecutionEventType.EXECUTION_COMPLETED,
@@ -104,3 +111,45 @@ class ExecutionService:
                 error=str(exc),
             )
             raise
+
+    # ==========================================================
+    # Sync API (backward compatibility)
+    # ==========================================================
+
+    def execute_plan_sync(
+        self,
+        agent: AgentRead,
+        task_in: TaskCreate,
+        plan: ExecutionPlan,
+        context: AgentExecutionContext,
+    ) -> ExecutionResult:
+        """
+        Synchronous version of execute_plan.
+        """
+        execution_id = str(uuid4())
+        step_outputs: List[str] = []
+
+        # Handle SINGLE_AGENT with no steps
+        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
+            if not plan.steps:
+                # Use the provided agent directly
+                output = f"Executed task '{task_in.description}' with agent '{agent.name}'"
+                return ExecutionResult(
+                    execution_id=execution_id,
+                    status="success",
+                    output=output,
+                )
+
+        # Process steps
+        steps = plan.steps or []
+        for idx, step in enumerate(steps):
+            step_name = getattr(step, "name", f"step-{idx}")
+            step_output = f"Executing step '{step_name}' for agent '{getattr(step, 'id', 'unknown')}'"
+            step_outputs.append(step_output)
+
+        final_output = "\n".join(step_outputs)
+        return ExecutionResult(
+            execution_id=execution_id,
+            status="success",
+            output=final_output,
+        )

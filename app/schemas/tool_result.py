@@ -4,81 +4,63 @@ Tool result schema.
 Represents the outcome of a tool execution.
 
 Returned by:
-- Tool executors
-- Runtime engines
+- ToolExecutor
+- ToolExecutionEngine
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional, Dict
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
 
 class ToolResult(BaseModel):
     """
-    Result of a tool execution.
+    Canonical result of tool execution.
 
-    This object is SAFE to store, log, and return.
+    This is the runtime contract between:
+    - Executor
+    - Engine
+    - Orchestrator
+    - API layer
     """
 
-    tool_id: str = Field(
-        ...,
-        description="ID of the executed tool",
-    )
+    tool_call_id: Optional[str] = None
+    tool_id: str
 
-    success: bool = Field(
-        ...,
-        description="Whether the tool execution succeeded",
-    )
+    # execution state - supports both success (bool) and status (str)
+    success: bool = Field(default=True)
+    status: Optional[str] = Field(default=None)
 
-    output: Optional[Any] = Field(
-        default=None,
-        description="Tool output payload",
-    )
+    # tool output
+    output: Optional[Any] = None
 
-    error: Optional[str] = Field(
-        default=None,
-        description="Error message if execution failed",
-    )
+    # error message (if failed)
+    error: Optional[str] = None
 
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Execution metadata (latency, cost, retries, tracing, etc.)",
-    )
+    # additional tracking
+    execution_id: Optional[str] = None
+    retries: int = 0
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    execution_id: Optional[str] = Field(
-        default=None,
-        description="Unique execution ID for MCP tracking",
-    )
-
-    retries: int = Field(
-        default=0,
-        description="Number of retries attempted for this tool call",
-        ge=0,
-    )
-
-    # -------------------------------------------------
-    # Helpers (non-breaking)
-    # -------------------------------------------------
+    # observability
+    started_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
     def is_error(self) -> bool:
-        """
-        Convenience helper for error checking.
-        """
+        """Returns True if this result represents an error."""
         return not self.success
 
     @property
     def has_output(self) -> bool:
-        """
-        Check whether output exists.
-        """
+        """Returns True if output is not None."""
         return self.output is not None
 
     def to_log_dict(self) -> Dict[str, Any]:
-        """
-        Structured log-safe representation.
-        """
+        """Return a log-safe dictionary representation."""
         return {
             "tool_id": self.tool_id,
+            "tool_call_id": self.tool_call_id,
             "success": self.success,
             "error": self.error,
             "execution_id": self.execution_id,

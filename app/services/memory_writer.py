@@ -1,45 +1,45 @@
 """
-Memory Writer Service.
+Memory Writer
 
-Responsible for persisting execution-level traces for future
-retrieval, auditing, or episodic memory.
+Responsible for persisting execution results into ExecutionHistoryRepository.
 
-Architectural role:
-- Snapshot ExecutionResult + AgentExecutionContext
-- Optional session-level ExecutionContext
-- Storage-agnostic (in-memory first, extendable)
-- Append-only, non-mutating
-- Observability hooks (timestamps, correlation IDs)
+Acts as the persistence bridge between runtime execution and storage.
 
-Future enhancements:
-- DynamoDB / OpenSearch backend
-- Batch writes
-- Replay & event sourcing
-- Cost / latency tracking
+This layer is intentionally isolated to allow future support for:
+- databases
+- vector stores
+- observability platforms
+- audit logs
 """
 
+import logging
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
 from uuid import uuid4
 
 from app.schemas.execution import ExecutionResult
-from app.schemas.execution_context import ExecutionContext
 from app.schemas.agent_execution_context import AgentExecutionContext
+from app.schemas.execution_context import ExecutionContext
+from app.repositories.execution_history_repository import ExecutionHistoryRepository
+
+logger = logging.getLogger(__name__)
 
 
+"""
+Persists execution history records.
+
+This is the ONLY component responsible for writing execution memory.
+"""
 class MemoryWriter:
-    """
-    Memory Writer – stores execution traces for auditing, replay, and reflection.
-    """
+    def __init__(
+        self,
+        history_repository: Optional[ExecutionHistoryRepository] = None,
+    ) -> None:
+        self._history_repository = history_repository or ExecutionHistoryRepository()
 
-    def __init__(self) -> None:
-        # In-memory store (temporary, replaceable)
-        # Key: run_id / execution_id, Value: serialized record
-        self._store: Dict[str, Dict[str, Any]] = {}
-
-    # --------------------------------------------------
+    # ==================================================
     # Public API
-    # --------------------------------------------------
+    # ==================================================
 
     def write(
         self,
@@ -48,68 +48,75 @@ class MemoryWriter:
         session_context: Optional[ExecutionContext] = None,
     ) -> str:
         """
-        Persist a snapshot of an execution.
-
-        Args:
-            execution_result: The output of the agent orchestration
-            agent_context: Runtime-scoped ephemeral context
-            session_context: Optional session-level context
+        Persist execution result and metadata.
 
         Returns:
-            record_id: Unique identifier for this memory record
+            str: The record ID
         """
+        now = datetime.now(timezone.utc)
         record_id = str(uuid4())
-        timestamp = datetime.now(timezone.utc).isoformat()
 
-        # Compose memory record
         record: Dict[str, Any] = {
-            "record_id": record_id,
-            "timestamp": timestamp,
+            "id": record_id,
             "execution_id": getattr(execution_result, "execution_id", None),
-            "task_id": getattr(execution_result, "task_id", None),
-            "agent_id": getattr(execution_result, "agent_id", None),
-            "agent_name": getattr(execution_result, "agent_name", None),
-            "strategy": getattr(execution_result, "strategy", None),
-            "input": getattr(execution_result, "input", None),
-            "output": getattr(execution_result, "output", None),
-            "status": getattr(execution_result, "status", None),
-            "tool_calls": [tc.model_dump() for tc in getattr(agent_context, "tool_calls", [])],
-            "child_results": getattr(execution_result, "child_results", None),
-            "errors": getattr(execution_result, "errors", None),
-            "metadata": getattr(execution_result, "metadata", None),
-            "session_context": session_context.model_dump() if session_context else None,
-            "started_at": getattr(execution_result, "started_at", None),
-            "finished_at": getattr(execution_result, "finished_at", None),
+            "status": execution_result.status,
+            "output": execution_result.output,
+            "error": execution_result.error,
+            "child_results": [
+                child.model_dump()
+                for child in (execution_result.child_results or [])
+            ],
+            "metadata": {
+                "task_id": session_context.task_id if session_context else None,
+                "run_id": agent_context.run_id,
+                "status": agent_context.status,
+                "strategy": (
+                    session_context.strategy.value
+                    if session_context and hasattr(session_context, "strategy")
+                    else None
+                ),
+            },
+            "timestamps": {
+                "created_at": now.isoformat(),
+                "completed_at": now.isoformat(),
+            },
+            "session_context": (
+                session_context.model_dump()
+                if session_context is not None
+                else None
+            ),
         }
 
-        # Store in memory (append-only)
-        self._store[record_id] = record
+        self._history_repository.save(record)
 
-        # Observability / debug hook
-        print(f"[MemoryWriter] Stored execution record: {record_id}")
+        # Debug-level observability (safe for production)
+        logger.debug("Stored execution record", extra={"execution_id": record["id"]})
 
         return record_id
 
-    # --------------------------------------------------
-    # Retrieval (optional / for inspection)
-    # --------------------------------------------------
-
     def get(self, record_id: str) -> Optional[Dict[str, Any]]:
         """
-        Retrieve a stored memory record by ID.
+        Retrieve a record by ID.
 
-        Returns None if not found.
+        Args:
+            record_id: The record identifier
+
+        Returns:
+            The record dict or None if not found
         """
-        return self._store.get(record_id)
+        for record in self._history_repository.all():
+            if record.get("id") == record_id:
+                return record
+        return None
 
     def list_records(self) -> List[Dict[str, Any]]:
         """
-        Return all stored memory records.
+        Return all stored records.
         """
-        return list(self._store.values())
+        return self._history_repository.all()
 
     def clear(self) -> None:
         """
-        Clear all stored records (useful for tests or reset).
+        Clear all stored records.
         """
-        self._store.clear()
+        self._history_repository.clear()

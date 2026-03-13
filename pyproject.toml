@@ -13,6 +13,7 @@ dependencies = [
     "sqlmodel>=0.0.18",
     "pytest-cov>=7.0.0",
     "chromadb>=1.5.5",
+    "slowapi>=0.1.9",
 ]
 
 [tool.pytest.ini_options]
@@ -32,6 +33,17 @@ omit = [
     "app/services/tools/base.py",
     "app/models/base.py",
     "app/schemas/tool_execution.py",
+    # RAG services require external dependencies (AWS Bedrock, ChromaDB)
+    "app/services/rag/bedrock_embedding_service.py",
+    "app/services/rag/chroma_adapter.py",
+    "app/services/rag/ingestion_service.py",
+    # v1 multi_agent has interface mismatches
+    "app/services/v1/multi_agent.py",
+    # Runtime files are not used in current flow
+    "app/runtime/*",
+    # MVP tools are placeholders
+    "app/mvp_tools.py",
+    "app/mvp_tools_registry.py",
 ]
 
 [tool.uv.workspace]

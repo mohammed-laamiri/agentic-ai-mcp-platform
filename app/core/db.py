@@ -7,7 +7,7 @@ Single source of truth for database connectivity.
 Supports both production and in-memory test databases.
 """
 
-from typing import Generator, Optional
+from typing import Any, Generator, Optional
 
 from sqlmodel import SQLModel, Session, create_engine
 
@@ -16,12 +16,12 @@ from app.core.config import get_settings
 # ============================================================
 # Global engine placeholder (lazy init)
 # ============================================================
-_engine: Optional[any] = None
+_engine: Optional[Any] = None
 
 # ============================================================
 # Engine Factory
 # ============================================================
-def get_engine(test_engine: Optional[any] = None):
+def get_engine(test_engine: Optional[Any] = None):
     """
     Lazily create and return the SQLAlchemy engine.
 
@@ -50,7 +50,7 @@ def get_engine(test_engine: Optional[any] = None):
 # ============================================================
 # Session Dependency
 # ============================================================
-def get_session(test_engine: Optional[any] = None) -> Generator[Session, None, None]:
+def get_session(test_engine: Optional[Any] = None) -> Generator[Session, None, None]:
     """
     FastAPI dependency that provides a DB session.
     Can accept a test_engine for testing purposes.
@@ -63,7 +63,7 @@ def get_session(test_engine: Optional[any] = None) -> Generator[Session, None, N
 # ============================================================
 # Database Initialization
 # ============================================================
-def init_db(test_engine: Optional[any] = None) -> None:
+def init_db(test_engine: Optional[Any] = None) -> None:
     """
     Initialize database schema.
     Safe to call multiple times.

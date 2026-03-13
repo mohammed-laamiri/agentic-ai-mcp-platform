@@ -81,7 +81,6 @@ class MultiAgentExecutor:
             return ExecutionResult(
                 status="success",
                 output=last_output,
-                child_results=[],
                 error=None,
             )
 
@@ -89,7 +88,6 @@ class MultiAgentExecutor:
             return ExecutionResult(
                 status="error",
                 output=None,
-                child_results=[],
                 error=f"Multi-agent execution failed: {str(exc)}",
             )
     async def _execute_multi_agent_stream(

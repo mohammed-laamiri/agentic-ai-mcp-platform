@@ -1,64 +1,84 @@
-"""
-ExecutionContext Schema
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
-Safe for FastAPI & Pydantic v2.
-Captures runtime state for agents and tools.
-"""
+from pydantic import BaseModel, Field
 
-from typing import Dict, Any, Optional
-from pydantic import BaseModel, PrivateAttr
+from app.schemas.tool_call import ToolCall
+from app.schemas.tool_result import ToolResult
 
 
 class ExecutionContext(BaseModel):
     """
-    Runtime execution state container.
+    Runtime context shared across agents and tools
+    during execution of an ExecutionPlan.
 
-    Attributes:
-        task_id: ID of the associated task
-        user_input: Original user request
+    This is NOT the plan itself.
+    This is the evolving state while the plan runs.
+    """
+
+    task_id: str = Field(..., description="Associated task identifier")
+
+    user_input: str = Field(..., description="Original user request")
+
+    variables: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Shared mutable state across agents"
+    )
+
+    agent_outputs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Outputs keyed by agent name"
+    )
+
+    tool_outputs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Outputs keyed by tool name"
+    )
+
+    # ---------------- Variable methods ----------------
+    def set_variable(self, key: str, value: Any) -> None:
+        """Set a variable in the shared state."""
+        self.variables[key] = value
+
+    def get_variable(self, key: str, default: Any = None) -> Any:
+        """Get a variable from the shared state."""
+        return self.variables.get(key, default)
+
+    # ---------------- Output methods ----------------
+    def add_agent_output(self, agent_id: str, output: Any) -> None:
+        """Add an agent output."""
+        self.agent_outputs[agent_id] = output
+
+    def add_tool_output(self, tool_id: str, output: Any) -> None:
+        """Add a tool output."""
+        self.tool_outputs[tool_id] = output
+
+
+# ==========================================================
+# Persistence schemas (SAFE ADDITION)
+# ==========================================================
+
+class ExecutionContextCreate(BaseModel):
+    """
+    Persistable execution context snapshot.
     """
 
     task_id: str
-    user_input: str
 
-    # Use Pydantic v2 private attributes for mutable dicts
-    _variables: Dict[str, Any] = PrivateAttr(default_factory=dict)
-    _agent_outputs: Dict[str, Any] = PrivateAttr(default_factory=dict)
-    _tool_outputs: Dict[str, Any] = PrivateAttr(default_factory=dict)
+    tool_calls: List[ToolCall] = Field(default_factory=list)
 
-    # -------------------------------
-    # Helpers for easy manipulation
-    # -------------------------------
-    def set_variable(self, key: str, value: Any) -> None:
-        """Set a variable in the execution context"""
-        self._variables[key] = value
+    tool_results: List[ToolResult] = Field(default_factory=list)
 
-    def get_variable(self, key: str, default: Optional[Any] = None) -> Any:
-        """Retrieve a variable value, returns default if not found"""
-        return self._variables.get(key, default)
+    final_output: Optional[str] = None
 
-    def add_agent_output(self, agent_name: str, output: Any) -> None:
-        """Store an agent's output"""
-        self._agent_outputs[agent_name] = output
+    execution_plan: Optional[Dict[str, Any]] = None
 
-    def add_tool_output(self, tool_name: str, output: Any) -> None:
-        """Store a tool's output"""
-        self._tool_outputs[tool_name] = output
 
-    # Optionally expose read-only views for serialization/logging
-    @property
-    def variables(self) -> Dict[str, Any]:
-        return dict(self._variables)
+class ExecutionContextRead(ExecutionContextCreate):
+    """
+    Persisted execution context with metadata.
+    """
 
-    @property
-    def agent_outputs(self) -> Dict[str, Any]:
-        return dict(self._agent_outputs)
+    id: str
 
-    @property
-    def tool_outputs(self) -> Dict[str, Any]:
-        return dict(self._tool_outputs)
-
-    # Pydantic v2 ORM support
-    model_config = {
-        "from_attributes": True
-    }
+    created_at: datetime

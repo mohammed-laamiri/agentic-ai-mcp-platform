@@ -1,16 +1,23 @@
 """
-Tool Registry (MCP Upgrade).
+Tool Registry.
 
-Responsibilities:
-- Tool metadata registration & versioning
-- Executor binding (MCP-compliant)
-- Discovery by planners and executors
+Runtime registry responsible for:
+- Tool metadata registration
+- Discovery by agents and planners
+- Version awareness
 - Validation boundaries
-- Optional future enhancements: permissions, rate limits, cost tracking
+
+IMPORTANT:
+- This registry does NOT execute tools
+- This registry does NOT enforce permissions (yet)
+
+Future replacements:
+- DynamoDB / Postgres
+- MCP-compatible tool index
 """
 
 from dataclasses import dataclass
-from typing import Dict, Optional, Callable, List, Any
+from typing import Dict, Optional, List, Callable, Any
 
 
 @dataclass(frozen=True)
@@ -18,72 +25,73 @@ class ToolMetadata:
     """
     Immutable tool metadata contract.
 
-    Safe to share across:
-    - PlannerAgent
-    - Orchestrator
-    - Execution runtimes
+    SAFE to share across planner, orchestrator, and execution layers.
 
-    Future extensions:
-    - Input/output schema
-    - Cost estimation
-    - Rate limits
-    - Permissions
-    - Tool owner
-    - Tool category
+    Includes:
+    - input_schema: JSON-schema-like validation contract
+    - version: semantic versioning
     """
+
     tool_id: str
     name: str
     version: str
     description: str
 
+    # NEW — argument validation schema
+    input_schema: Optional[Dict[str, Any]] = None
+
 
 class ToolRegistry:
     """
-    In-memory tool registry with MCP binding.
+    In-memory tool registry.
 
-    Architectural role:
-    - Source of truth for tool metadata
-    - Registers executor functions for tools
-    - Supports planners and execution engines
+    Source of truth for:
+    - Tool metadata
+    - Tool callable binding
+    - Tool validation schema
     """
 
     def __init__(self) -> None:
+
+        # Metadata store: tool_id -> ToolMetadata
         self._tools: Dict[str, ToolMetadata] = {}
-        self._executors: Dict[str, Callable[..., Any]] = {}
+
+        # Callable binding store: tool_id -> Callable
+        self._callables: Dict[str, Callable[..., Any]] = {}
 
     # --------------------------------------------------
-    # Metadata Registration
+    # Registration
     # --------------------------------------------------
 
-    def register_tool(self, metadata: ToolMetadata, executor: Optional[Callable[..., Any]] = None) -> None:
+    def register_tool(
+        self,
+        metadata: ToolMetadata,
+        callable_fn: Optional[Callable[..., Any]] = None,
+        executor: Optional[Callable[..., Any]] = None,
+        overwrite: bool = False,
+    ) -> None:
         """
-        Register a tool metadata and optionally bind an executor.
+        Register or update a tool.
 
-        Behavior:
-        - If tool_id exists → replaced
-        - If tool_id is new → inserted
+        callable_fn/executor is optional to support metadata-only registration.
+
+        overwrite: if False, prevents accidental overwriting of existing versions.
         """
+        # Support both callable_fn and executor as parameter names
+        fn = callable_fn or executor
+
+        existing = self._tools.get(metadata.tool_id)
+
+        if existing and not overwrite:
+            if existing.version == metadata.version:
+                raise ValueError(
+                    f"Tool '{metadata.tool_id}' already registered with version {metadata.version}"
+                )
+
         self._tools[metadata.tool_id] = metadata
-        if executor:
-            self._executors[metadata.tool_id] = executor
 
-    # --------------------------------------------------
-    # Executor Binding
-    # --------------------------------------------------
-
-    def bind_executor(self, tool_id: str, executor: Callable[..., Any]) -> None:
-        """
-        Bind or update an executor for a registered tool.
-        """
-        if tool_id not in self._tools:
-            raise ValueError(f"Cannot bind executor: Tool '{tool_id}' not registered")
-        self._executors[tool_id] = executor
-
-    def get_executor(self, tool_id: str) -> Optional[Callable[..., Any]]:
-        """
-        Retrieve the executor callable for a given tool ID.
-        """
-        return self._executors.get(tool_id)
+        if fn:
+            self._callables[metadata.tool_id] = fn
 
     # --------------------------------------------------
     # Retrieval
@@ -91,6 +99,13 @@ class ToolRegistry:
 
     def get_tool(self, tool_id: str) -> Optional[ToolMetadata]:
         return self._tools.get(tool_id)
+
+    def get_callable(self, tool_id: str) -> Optional[Callable[..., Any]]:
+        return self._callables.get(tool_id)
+
+    def get_input_schema(self, tool_id: str) -> Optional[Dict[str, Any]]:
+        tool = self._tools.get(tool_id)
+        return tool.input_schema if tool else None
 
     def list_tools(self) -> List[ToolMetadata]:
         return list(self._tools.values())
@@ -104,4 +119,26 @@ class ToolRegistry:
 
     def remove_tool(self, tool_id: str) -> None:
         self._tools.pop(tool_id, None)
-        self._executors.pop(tool_id, None)
+        self._callables.pop(tool_id, None)
+
+    # --------------------------------------------------
+    # Backward compatibility aliases
+    # --------------------------------------------------
+
+    def bind_executor(self, tool_id: str, executor: Callable[..., Any]) -> None:
+        """
+        Bind an executor to a registered tool.
+
+        Raises ValueError if tool is not registered.
+        """
+        if tool_id not in self._tools:
+            raise ValueError(f"Tool '{tool_id}' not registered")
+        self._callables[tool_id] = executor
+
+    def get_executor(self, tool_id: str) -> Optional[Callable[..., Any]]:
+        """
+        Get the executor for a tool.
+
+        Returns None if not bound.
+        """
+        return self._callables.get(tool_id)

@@ -1,22 +1,27 @@
 # app/api/routers/task_router.py
 
 from typing import List, Optional, Dict, Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.schemas.task import TaskCreate, TaskRead
 from app.schemas.agent import AgentRead
+
 from app.services.task_service import TaskService
 from app.services.agent_service import AgentService
-from app.services.tool_registry import ToolRegistry
-from app.services.memory_writer import MemoryWriter
+from app.services.planner_agent import PlannerAgent
+from app.services.execution.execution_service import ExecutionService
 from app.services.orchestrator import OrchestratorService
 
 router = APIRouter(tags=["Tasks"])
 
-# ----------------------------
+
+# ---------------------------------------------------------
 # Singleton TaskService (shared in-memory store)
-# ----------------------------
+# ---------------------------------------------------------
+
 task_service = TaskService()
+
 
 def get_task_service() -> TaskService:
     return task_service
@@ -27,13 +32,14 @@ def get_orchestrator() -> OrchestratorService:
     return OrchestratorService(
         task_service=task_service,
         agent_service=AgentService(),
-        tool_registry=ToolRegistry(),
-        memory_writer=MemoryWriter(),
+        planner_agent=PlannerAgent(),
+        execution_service=ExecutionService(),
     )
 
-# ----------------------------
+
+# ---------------------------------------------------------
 # CRUD Endpoints
-# ----------------------------
+# ---------------------------------------------------------
 
 @router.post("/", response_model=TaskRead, status_code=status.HTTP_201_CREATED)
 def create_task(task_in: TaskCreate, service: TaskService = Depends(get_task_service)):
@@ -43,13 +49,22 @@ def create_task(task_in: TaskCreate, service: TaskService = Depends(get_task_ser
 @router.get("/{task_id}", response_model=TaskRead)
 def get_task(task_id: str, service: TaskService = Depends(get_task_service)):
     task = service.get_task(task_id)
+
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
     return task
 
 
 @router.get("/", response_model=List[TaskRead])
-def list_tasks(skip: int = 0, limit: int = 100, service: TaskService = Depends(get_task_service)):
+def list_tasks(
+    skip: int = 0,
+    limit: int = 100,
+    service: TaskService = Depends(get_task_service),
+):
     return service.list_tasks(skip=skip, limit=limit)
 
 
@@ -57,21 +72,39 @@ def list_tasks(skip: int = 0, limit: int = 100, service: TaskService = Depends(g
 def complete_task(
     task_id: str,
     result: Optional[Dict[str, Any]] = None,
-    service: TaskService = Depends(get_task_service)
+    service: TaskService = Depends(get_task_service),
 ):
     task = service.complete_task(task_id, result or {})
+
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
     return task
 
 
 @router.post("/{task_id}/fail", response_model=TaskRead)
-def fail_task(task_id: str, error: str, service: TaskService = Depends(get_task_service)):
+def fail_task(
+    task_id: str,
+    error: str,
+    service: TaskService = Depends(get_task_service),
+):
     task = service.fail_task(task_id, error)
+
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
+
     return task
 
+
+# ---------------------------------------------------------
+# Task Execution Endpoint
+# ---------------------------------------------------------
 
 @router.post("/{task_id}/execute", response_model=TaskRead)
 async def execute_task(
@@ -84,14 +117,22 @@ async def execute_task(
 
     Creates a default agent and runs the task through the orchestration pipeline.
     """
+
     task = service.get_task(task_id)
+
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found"
+        )
 
-    # Create a default agent for execution
-    default_agent = AgentRead(id="default-agent", name="DefaultAgent")
+    # Create default agent
+    default_agent = AgentRead(
+        id="default-agent",
+        name="DefaultAgent"
+    )
 
-    # Create TaskCreate from existing task
+    # Rebuild TaskCreate from stored task
     task_create = TaskCreate(
         name=task.name,
         description=task.description,
@@ -99,13 +140,16 @@ async def execute_task(
         priority=task.priority,
     )
 
-    # Execute via orchestrator (async)
-    result = await orchestrator.execute(agent=default_agent, task_in=task_create)
+    # Execute through orchestrator
+    result = await orchestrator.execute(
+        agent=default_agent,
+        task_in=task_create
+    )
 
-    # Complete the original task with the execution result
+    # Complete original task with execution result
     completed_task = service.complete_task(
         task_id=task_id,
-        result=result.model_dump() if hasattr(result, 'model_dump') else result.dict(),
+        result=result.model_dump()
     )
 
     return completed_task
