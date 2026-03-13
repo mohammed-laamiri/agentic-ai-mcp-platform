@@ -87,7 +87,7 @@ def create_app() -> FastAPI:
     # ------------------------------
     app.include_router(health_router, prefix="/api", tags=["Health"])
     app.include_router(task_router, prefix="/api/tasks", tags=["Tasks"])
-    app.include_router(agent_router, prefix="/api", tags=["Agent"])
+    app.include_router(agent_router, prefix="/api", tags=["Agents"])
     app.include_router(rag_router, prefix="/api", tags=["RAG"])
     app.include_router(tool_router, prefix="/api", tags=["Tools"])
     app.include_router(demo_router, prefix="/api", tags=["Demo"])

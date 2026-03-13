@@ -63,6 +63,21 @@ def register_tool(
 
 
 # =====================================================
+# Health Check (MUST be before /{tool_id})
+# =====================================================
+
+@router.get("/health")
+def tools_health():
+    """
+    Health check for tools router.
+    """
+    return {
+        "status": "ok",
+        "router": "tools",
+    }
+
+
+# =====================================================
 # Get Tool Metadata
 # =====================================================
 
@@ -83,7 +98,7 @@ def get_tool(
     if tool is None:
         raise HTTPException(
             status_code=404,
-            detail=f"Tool '{tool_id}' not found",
+            detail="Tool not found",
         )
 
     return ToolRead(

@@ -58,14 +58,17 @@ class TaskService:
         status = TaskStatus.completed if execution_result else TaskStatus.pending
 
         # Build TaskRead object
+        now = datetime.now(timezone.utc)
         task = TaskRead(
             id=task_id,
             name=getattr(task_in, "name", None),
             description=task_in.description,
             status=status,
+            priority=getattr(task_in, "priority", 1),
             result=result_value,
             input=task_in.input,
-            created_at=datetime.now(timezone.utc),
+            created_at=now,
+            updated_at=now,
         )
 
         # Store in internal dictionary
@@ -114,16 +117,19 @@ class TaskService:
             return None
 
         # Create updated task with completed status
+        now = datetime.now(timezone.utc)
         updated_task = TaskRead(
             id=task.id,
             name=task.name,
             description=task.description,
             status=TaskStatus.completed,
+            priority=task.priority,
             result=result,
             execution_result=task.execution_result,
             input=task.input,
             created_at=task.created_at,
-            completed_at=datetime.now(timezone.utc),
+            updated_at=now,
+            completed_at=now,
         )
         self._tasks[task_id] = updated_task
         return updated_task
@@ -141,16 +147,19 @@ class TaskService:
             return None
 
         # Create updated task with failed status
+        now = datetime.now(timezone.utc)
         updated_task = TaskRead(
             id=task.id,
             name=task.name,
             description=task.description,
             status=TaskStatus.failed,
+            priority=task.priority,
             result={"error": error},
             execution_result=task.execution_result,
             input=task.input,
             created_at=task.created_at,
-            completed_at=datetime.now(timezone.utc),
+            updated_at=now,
+            completed_at=now,
         )
         self._tasks[task_id] = updated_task
         return updated_task
