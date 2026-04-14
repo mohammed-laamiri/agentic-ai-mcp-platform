@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api.dependencies.auth import require_api_key, DEV_API_KEY
+from app.core.config import get_settings
 
 
 async def test_require_api_key_valid():
@@ -38,3 +39,15 @@ async def test_require_api_key_empty():
         await require_api_key(x_api_key="")
 
     assert exc_info.value.status_code == 401
+
+
+async def test_require_api_key_uses_env_override(monkeypatch):
+    """Configured API key should come from environment settings."""
+    monkeypatch.setenv("API_KEY", "prod-key")
+    get_settings.cache_clear()
+
+    try:
+        result = await require_api_key(x_api_key="prod-key")
+        assert result == "prod-key"
+    finally:
+        get_settings.cache_clear()

@@ -18,6 +18,7 @@ from app.core.config import get_settings
 # ============================================================
 _engine: Optional[Any] = None
 
+
 # ============================================================
 # Engine Factory
 # ============================================================
@@ -36,7 +37,7 @@ def get_engine(test_engine: Optional[Any] = None):
 
     if _engine is None:
         settings = get_settings()
-        database_url = settings.DATABASE_URL
+        database_url = settings.database_url
         _engine = create_engine(
             database_url,
             echo=True,
