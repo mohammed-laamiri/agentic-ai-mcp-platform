@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
 
+    # Infrastructure
+    database_url: str = "sqlite:///./app.db"
+    api_key: str = "dev-secret-key"
+
     # AWS / Bedrock (placeholders for later)
     aws_region: str | None = None
 

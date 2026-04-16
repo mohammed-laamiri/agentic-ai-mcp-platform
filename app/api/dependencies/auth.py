@@ -13,9 +13,11 @@ from typing import Optional
 
 from fastapi import Header, HTTPException, status
 
+from app.core.config import get_settings
 
-# Temporary development key.
-# In production this should come from environment variables.
+
+# Temporary development default.
+# Production should override this through environment variables.
 DEV_API_KEY = "dev-secret-key"
 
 
@@ -32,8 +34,10 @@ async def require_api_key(
     This keeps authentication logic outside business logic.
     """
 
+    configured_api_key = get_settings().api_key
+
     # Reject if header is missing or incorrect
-    if x_api_key != DEV_API_KEY:
+    if x_api_key != configured_api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API key",

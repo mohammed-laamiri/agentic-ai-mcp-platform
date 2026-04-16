@@ -249,6 +249,36 @@ Run integration tests:
 pytest tests/unit/integration -v
 ```
 
+---
+
+# Fly.io Deployment
+
+The Fly.io configuration for this project lives inside the repository root of this app:
+
+```bash
+agentic-ai-mcp-platform/fly.toml
+```
+
+Run deployment commands from the `agentic-ai-mcp-platform/` directory:
+
+```bash
+cd agentic-ai-mcp-platform
+fly deploy
+```
+
+Or provide the config file explicitly if you are deploying from a parent workspace:
+
+```bash
+fly deploy -c /path/to/agentic-ai-mcp-platform/fly.toml
+```
+
+Production deployments should also provide environment variables for the backend, especially:
+
+```bash
+DATABASE_URL=<production database url>
+API_KEY=<production api key>
+```
+
 Example output:
 
 ```
