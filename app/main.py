@@ -40,13 +40,19 @@ from app.api.routers.streaming import router as streaming_router
 from app.runtime import runtime  # noqa: F401
 
 
+# ------------------------------
+# Configure logging ONCE (global)
+# ------------------------------
+configure_logging()
+
+
 def create_app() -> FastAPI:
     """
     Application factory.
 
     - Registers routers
-    - Configures logging & correlation ID middleware
-    - Registers rate limiting middleware and exception handler
+    - Configures middleware
+    - Registers rate limiting
     """
     settings = get_settings()
 
@@ -57,17 +63,12 @@ def create_app() -> FastAPI:
     )
 
     # ------------------------------
-    # Phase 4.2 — Logging
-    # ------------------------------
-    configure_logging()
-
-    # ------------------------------
-    # Phase 4.2 — Correlation ID middleware
+    # Correlation ID middleware
     # ------------------------------
     app.add_middleware(CorrelationIdMiddleware)
 
     # ------------------------------
-    # Phase 4.3 — Rate limiting
+    # Rate limiting
     # ------------------------------
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
@@ -81,6 +82,17 @@ def create_app() -> FastAPI:
             status_code=429,
             content={"detail": "Rate limit exceeded. Try again later."},
         )
+
+    # ------------------------------
+    # Root endpoint (fixes 404 on "/")
+    # ------------------------------
+    @app.get("/", tags=["Root"])
+    def root():
+        return {
+            "message": "Agentic AI MCP Platform API is running",
+            "docs": "/docs",
+            "health": "/api/health",
+        }
 
     # ------------------------------
     # Router registration
