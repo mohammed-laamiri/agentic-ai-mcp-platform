@@ -1,47 +1,64 @@
-"""
-Agent Execution Context.
-
-Execution-scoped context object used during
-a single orchestrator run.
-
-Architectural intent:
-- Created by the Orchestrator
-- Read-only for agents
-- Collects execution metadata
-"""
-
-from datetime import datetime
-from typing import List
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, List, Union
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from app.schemas.tool_call import ToolCall
-
 
 class AgentExecutionContext(BaseModel):
     """
-    Execution-scoped context for a single orchestration run.
-
-    IMPORTANT:
-    - Agents must treat this as READ-ONLY
-    - Orchestrator owns mutation
+    Shared execution state across the agent runtime.
     """
 
-    run_id: str = Field(
-        default_factory=lambda: str(uuid4()),
-        description="Unique identifier for this execution run",
-    )
+    # ---------------- Execution identifiers ----------------
+    run_id: str = Field(default_factory=lambda: str(uuid4()))
+    session_id: Optional[str] = None
+    user_id: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    started_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        description="Timestamp when orchestration began",
-    )
+    # ---------------- Execution lifecycle ----------------
+    status: str = "pending"
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None  # Alias for completed_at
+    error: Optional[str] = None
 
-    tool_calls: List[ToolCall] = Field(
-        default_factory=list,
-        description="Tool calls declared by agents during execution",
-    )
+    # ---------------- Execution trace ----------------
+    last_agent_id: Optional[str] = None
+    last_execution_time: Optional[datetime] = None
 
-    # Intentionally minimal.
-    # This is a load-bearing abstraction.
+    # ---------------- Tool tracking ----------------
+    tool_calls: List[Any] = Field(default_factory=list)
+    tool_results: List[Any] = Field(default_factory=list)
+
+    # ---------------- Lifecycle methods ----------------
+    def mark_running(self) -> None:
+        self.status = "running"
+        self.started_at = datetime.now(timezone.utc)
+
+    def mark_completed(self, status: str = "completed") -> None:
+        self.status = status
+        now = datetime.now(timezone.utc)
+        self.completed_at = now
+        self.finished_at = now
+
+    def mark_failed(self, error: str) -> None:
+        self.status = "failed"
+        now = datetime.now(timezone.utc)
+        self.completed_at = now
+        self.finished_at = now
+        self.error = error
+
+    # ---------------- Output methods (for backward compatibility) ----------------
+    def set_final_output(self, output: str) -> None:
+        """Set the final output in metadata."""
+        self.metadata["final_output"] = output
+
+    # ---------------- Tool tracking methods ----------------
+    def add_tool_call(self, tool_call: Any) -> None:
+        """Add a tool call to the tracking list."""
+        self.tool_calls.append(tool_call)
+
+    def add_tool_result(self, tool_result: Any) -> None:
+        """Add a tool result to the tracking list."""
+        self.tool_results.append(tool_result)

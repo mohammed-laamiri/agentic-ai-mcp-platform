@@ -1,36 +1,58 @@
 """
 Application entry point.
 
-This module is responsible for:
+Responsible for:
 - Creating the FastAPI application instance
 - Loading configuration
 - Registering routers and middleware
 
-IMPORTANT:
-- No business logic lives here
-- No service instantiation happens here
-- This file should stay thin and declarative
+Phase 4 implemented:
+- Auth layer applied at route level
+- Correlation IDs & logging configured
+- Rate limiting middleware registered
 """
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 
-# Centralized application settings (Pydantic Settings)
+# Centralized settings
 from app.core.config import get_settings
 
-# API routers
+# Logging & observability (Phase 4.2)
+from app.core.logging import configure_logging
+from app.api.middleware.correlation import CorrelationIdMiddleware
+
+# Rate limiting (Phase 4.3)
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from app.api.rate_limit import limiter
+
+# Routers
 from app.api.routers import health_router, task_router
 from app.api.routers.agent_router import router as agent_router
 from app.api.routers.tool_router import router as tool_router
+from app.api.routers.rag_router import router as rag_router
+from app.api.routers.demo_router import router as demo_router
+from app.api.routers.execution_router import router as execution_router
+from app.api.routers.streaming import router as streaming_router
+
+# Runtime singletons (tool registry, execution engine)
+from app.runtime import runtime  # noqa: F401
+
+
+# ------------------------------
+# Configure logging ONCE (global)
+# ------------------------------
+configure_logging()
 
 
 def create_app() -> FastAPI:
     """
     Application factory.
 
-    Why we use an app factory:
-    - Allows easier testing
-    - Enables different configs per environment
-    - Prevents side effects at import time
+    - Registers routers
+    - Configures middleware
+    - Registers rate limiting
     """
     settings = get_settings()
 
@@ -40,46 +62,52 @@ def create_app() -> FastAPI:
         description="Agentic AI MCP Platform API",
     )
 
-    # -------------------------
-    # Router Registration
-    # -------------------------
+    # ------------------------------
+    # Correlation ID middleware
+    # ------------------------------
+    app.add_middleware(CorrelationIdMiddleware)
 
-    # Health check endpoints
-    # Used by:
-    # - Load balancers
-    # - Monitoring systems
-    # - CI/CD smoke tests
-    app.include_router(
-        health_router,
-        prefix="/api",
-        tags=["Health"],
-    )
+    # ------------------------------
+    # Rate limiting
+    # ------------------------------
+    app.state.limiter = limiter
+    app.add_middleware(SlowAPIMiddleware)
 
-    # Task execution endpoints
-    # This is the first real business-facing API
-    app.include_router(
-        task_router,
-        prefix="/api",
-        tags=["Tasks"],
-    )
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_exceeded_handler(request, exc):
+        """
+        Returns 429 when rate limit is exceeded.
+        """
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Try again later."},
+        )
 
-    # Agent execution endpoint
-    app.include_router(
-        agent_router,
-        prefix="/api",
-        tags=["Agent"],
-    )
+    # ------------------------------
+    # Root endpoint (fixes 404 on "/")
+    # ------------------------------
+    @app.get("/", tags=["Root"])
+    def root():
+        return {
+            "message": "Agentic AI MCP Platform API is running",
+            "docs": "/docs",
+            "health": "/api/health",
+        }
 
-    app.include_router(
-    tool_router,
-    prefix="/api",
-    tags=["Tools"],
-    )
-
+    # ------------------------------
+    # Router registration
+    # ------------------------------
+    app.include_router(health_router, prefix="/api", tags=["Health"])
+    app.include_router(task_router, prefix="/api/tasks", tags=["Tasks"])
+    app.include_router(agent_router, prefix="/api", tags=["Agents"])
+    app.include_router(rag_router, prefix="/api", tags=["RAG"])
+    app.include_router(tool_router, prefix="/api", tags=["Tools"])
+    app.include_router(demo_router, prefix="/api", tags=["Demo"])
+    app.include_router(execution_router)
+    app.include_router(streaming_router, prefix="/api")
 
     return app
 
 
-# ASGI application instance
-# This is what Uvicorn / Gunicorn will load
+# ASGI app instance
 app = create_app()

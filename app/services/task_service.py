@@ -1,76 +1,165 @@
+# app/services/task_service.py
 """
-Task service.
+Task Service
 
-Responsible for:
-- Creating task records
-- Managing task lifecycle
-- Returning domain-level task responses
-
-This service represents the *task domain*.
-It does NOT know:
-- How agents work
-- How orchestration is done
+Handles task persistence and execution results.
+Compatible with both string and dict ExecutionResults.
 """
 
-from datetime import datetime
+from typing import Optional, Union, Dict, List
 from uuid import uuid4
+from datetime import datetime, timezone
 
 from app.schemas.task import TaskCreate, TaskRead, TaskStatus
 
 
 class TaskService:
     """
-    Handles task domain logic.
+    Task persistence layer.
 
-    This service SHOULD:
-    - Own task state transitions
-    - Return fully-formed TaskRead objects
-
-    This service SHOULD NOT:
-    - Execute agents
-    - Contain orchestration logic
+    Currently in-memory storage.
+    Handles creation and retrieval of TaskRead objects.
     """
 
-    def create(self, task_in: TaskCreate, execution_result: dict) -> TaskRead:
-        """
-        Create a task record from execution results.
+    def __init__(self) -> None:
+        # Internal storage: task_id -> TaskRead
+        self._tasks: Dict[str, TaskRead] = {}
 
-        This method represents the *first persistence step* of a task.
-        In future iterations, this may:
-        - Write to a database
-        - Emit events
-        - Trigger audit logs
+    def create(
+        self,
+        task_in: TaskCreate,
+        execution_result: Optional[Union[str, Dict]] = None,
+    ) -> TaskRead:
+        """
+        Create a new task.
+
+        Arguments:
+        - task_in: TaskCreate object containing description and input.
+        - execution_result: Optional output from execution (string or dict).
+
+        Behavior:
+        - If execution_result is dict: extract "output".
+        - If execution_result is string: store as-is.
+        - Determines task status based on presence of execution_result.
         """
 
-        return TaskRead(
-            id=str(uuid4()),
+        task_id = str(uuid4())  # Generate unique ID
+        result_value: Optional[Union[str, Dict]] = None
+
+        # Safe extraction of output
+        if isinstance(execution_result, dict):
+            result_value = execution_result.get("output")
+        elif isinstance(execution_result, str):
+            result_value = execution_result
+        else:
+            result_value = None
+
+        # Determine task status
+        status = TaskStatus.completed if execution_result else TaskStatus.pending
+
+        # Build TaskRead object
+        now = datetime.now(timezone.utc)
+        task = TaskRead(
+            id=task_id,
+            name=getattr(task_in, "name", None),
             description=task_in.description,
-            status=TaskStatus.completed,
-            result=execution_result.get("output"),
+            status=status,
+            priority=getattr(task_in, "priority", 1),
+            result=result_value,
             input=task_in.input,
-            created_at=datetime.utcnow(),
+            created_at=now,
+            updated_at=now,
         )
 
-    def complete_task(self, task: TaskRead, output: str) -> TaskRead:
-        """
-        Mark a task as completed.
-
-        This method exists for future state transitions
-        when tasks live longer than a single request.
-        """
-        task.status = TaskStatus.completed
-        task.result = output
+        # Store in internal dictionary
+        self._tasks[task_id] = task
         return task
 
-    def fail_task(self, task: TaskRead, error: str) -> TaskRead:
+    def get(self, task_id: str) -> Optional[TaskRead]:
         """
-        Mark a task as failed.
+        Retrieve a task by ID.
+        """
+        return self._tasks.get(task_id)
 
-        Future use cases:
-        - Agent crashes
-        - Tool failures
-        - Validation errors
+    # ==================================================
+    # Aliases for backward compatibility
+    # ==================================================
+
+    def create_task(self, task_in: TaskCreate) -> TaskRead:
         """
-        task.status = TaskStatus.failed
-        task.result = error
-        return task
+        Create a new task (alias for create()).
+        """
+        return self.create(task_in)
+
+    def get_task(self, task_id: str) -> Optional[TaskRead]:
+        """
+        Retrieve a task by ID (alias for get()).
+        """
+        return self.get(task_id)
+
+    def list_tasks(self, skip: int = 0, limit: int = 100) -> List[TaskRead]:
+        """
+        List all tasks with optional pagination.
+        """
+        tasks = list(self._tasks.values())
+        return tasks[skip:skip + limit]
+
+    def complete_task(
+        self,
+        task_id: str,
+        result: Optional[Union[str, Dict]] = None,
+    ) -> Optional[TaskRead]:
+        """
+        Mark a task as completed with an optional result.
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+
+        # Create updated task with completed status
+        now = datetime.now(timezone.utc)
+        updated_task = TaskRead(
+            id=task.id,
+            name=task.name,
+            description=task.description,
+            status=TaskStatus.completed,
+            priority=task.priority,
+            result=result,
+            execution_result=task.execution_result,
+            input=task.input,
+            created_at=task.created_at,
+            updated_at=now,
+            completed_at=now,
+        )
+        self._tasks[task_id] = updated_task
+        return updated_task
+
+    def fail_task(
+        self,
+        task_id: str,
+        error: str,
+    ) -> Optional[TaskRead]:
+        """
+        Mark a task as failed with an error message.
+        """
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+
+        # Create updated task with failed status
+        now = datetime.now(timezone.utc)
+        updated_task = TaskRead(
+            id=task.id,
+            name=task.name,
+            description=task.description,
+            status=TaskStatus.failed,
+            priority=task.priority,
+            result={"error": error},
+            execution_result=task.execution_result,
+            input=task.input,
+            created_at=task.created_at,
+            updated_at=now,
+            completed_at=now,
+        )
+        self._tasks[task_id] = updated_task
+        return updated_task

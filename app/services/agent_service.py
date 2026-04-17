@@ -5,18 +5,23 @@ Responsible for:
 - Executing agent logic
 - Declaring tool calls
 - Interacting with LLMs (later)
-
-Currently a deterministic stub.
+- Executing tools via ToolExecutor
+- Returning standardized ExecutionResult objects
 """
 
 from datetime import datetime, timezone
-from uuid import uuid4
+from typing import Optional, List
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
+from app.schemas.execution import ExecutionResult
 from app.schemas.agent_execution_context import AgentExecutionContext
 from app.schemas.tool_call import ToolCall
 from app.schemas.tool_result import ToolResult
+
+from app.services.rag.rag_service import RAGService
+from app.services.tool_executor import ToolExecutor
+from app.services.tool_registry import ToolRegistry
 
 
 class AgentService:
@@ -25,54 +30,193 @@ class AgentService:
 
     Architectural role:
     - Stable execution boundary
-    - Future tool-aware agent runtime
+    - Tool-aware agent runtime
+    - Produces standardized ExecutionResult
     """
 
-    def execute(
+    def __init__(self, rag_service: Optional[RAGService] = None) -> None:
+        """
+        Initialize AgentService with optional RAG and tool system.
+        """
+        self._rag_service = rag_service
+
+        # Tool system
+        self._tool_registry = ToolRegistry()
+        self._tool_executor = ToolExecutor(tool_registry=self._tool_registry)
+
+    # ==================================================
+    # Main execution entrypoint
+    # ==================================================
+
+    async def execute(
         self,
         agent: AgentRead,
         task: TaskCreate,
-        context: AgentExecutionContext | None = None,
-    ) -> dict:
+        context: Optional[AgentExecutionContext] = None,
+    ) -> ExecutionResult:
         """
         Execute a task using an agent.
 
-        IMPORTANT:
-        - Returns dict (execution payload)
-        - Tool calls are DECLARED, not executed
+        Always returns ExecutionResult (NEVER dict).
+        Safe for SINGLE_AGENT and MULTI_AGENT pipelines.
         """
-        return {
-            "execution_id": str(uuid4()),
-            "agent_id": agent.id,
-            "agent_name": agent.name,
-            "input": task.description,
-            "output": f"[STUB RESPONSE] Agent '{agent.name}' processed task.",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            # Optional future field:
-            # "tool_calls": []
-        }
+        started_at = datetime.now(timezone.utc)
+
+        try:
+            # Ensure context exists
+            if context is None:
+                context = AgentExecutionContext()
+
+            # ----------------------
+            # Retrieve RAG context safely
+            # ----------------------
+            rag_context: List[str] = []
+            if self._rag_service and task.description:
+                try:
+                    # Await the async RAG call
+                    rag_context = await self._rag_service.retrieve(
+                        query=task.description,
+                        top_k=3,
+                    )
+                except Exception as rag_error:
+                    context.metadata["rag_error"] = str(rag_error)
+
+            context_text = (
+                "\n".join(rag_context)
+                if rag_context
+                else "No RAG context available."
+            )
+
+            # ----------------------
+            # Stub agent reasoning (LLM integration later)
+            # ----------------------
+            output = (
+                f"[AGENT EXECUTION]\n"
+                f"Agent ID: {agent.id}\n"
+                f"Agent Name: {agent.name}\n\n"
+                f"Task:\n{task.description}\n\n"
+                f"Retrieved Context:\n{context_text}"
+            )
+
+            finished_at = datetime.now(timezone.utc)
+
+            # Update execution context safely
+            context.last_agent_id = agent.id
+            context.last_execution_time = finished_at
+
+            context.metadata.setdefault("execution_trace", []).append(
+                {
+                    "agent_id": agent.id,
+                    "timestamp": finished_at.isoformat(),
+                    "status": "success",
+                }
+            )
+
+            # Return standardized ExecutionResult
+            return ExecutionResult(
+                tool_call_id=None,
+                tool_id=None,
+                status="success",
+                output=output,
+                error=None,
+                tool_calls=[],
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+
+        except Exception as exc:
+            finished_at = datetime.now(timezone.utc)
+            context.metadata["last_error"] = str(exc) if context else str(exc)
+            return ExecutionResult(
+                tool_call_id=None,
+                tool_id=None,
+                status="error",
+                output=None,
+                error=f"Agent execution failed: {str(exc)}",
+                tool_calls=[],
+                started_at=started_at,
+                finished_at=finished_at,
+            )
 
     # ==================================================
-    # Tool Execution Hook (NOT USED YET)
+    # Tool execution via ToolExecutor
     # ==================================================
 
     def execute_tool(
         self,
         tool_call: ToolCall,
-        context: AgentExecutionContext | None = None,
+        context: Optional[AgentExecutionContext] = None,
     ) -> ToolResult:
         """
-        Stub for tool execution.
-
-        Actual execution will be handled by ToolExecutor later.
+        Execute tool safely via ToolExecutor.
         """
-        return ToolResult(
-            tool_id=tool_call.tool_id,
-            success=True,
-            output=f"[STUB] Tool '{tool_call.tool_id}' executed.",
-            error=None,
-            metadata={
-                "stub": True,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-        )
+        result = self._tool_executor.execute(tool_call=tool_call)
+
+        # Optional context update
+        if context:
+            context.metadata.setdefault("tool_execution_trace", []).append(
+                {
+                    "tool_id": tool_call.tool_id,
+                    "status": result.status,
+                    "timestamp": result.finished_at.isoformat()
+                    if result.finished_at else None,
+                }
+            )
+
+        return result
+
+    # ==================================================
+    # Sync method (backward compatibility)
+    # ==================================================
+
+    def execute_sync(
+        self,
+        agent: AgentRead,
+        task: TaskCreate,
+        context: Optional[AgentExecutionContext] = None,
+    ) -> ExecutionResult:
+        """
+        Synchronous execution method for backward compatibility.
+        """
+        started_at = datetime.now(timezone.utc)
+
+        try:
+            if context is None:
+                context = AgentExecutionContext()
+
+            # Stub agent reasoning
+            output = (
+                f"[AGENT EXECUTION]\n"
+                f"Agent ID: {agent.id}\n"
+                f"Agent Name: {agent.name}\n\n"
+                f"Task:\n{task.description}"
+            )
+
+            finished_at = datetime.now(timezone.utc)
+
+            context.last_agent_id = agent.id
+            context.last_execution_time = finished_at
+
+            return ExecutionResult(
+                tool_call_id=None,
+                tool_id=None,
+                status="success",
+                output=output,
+                error=None,
+                tool_calls=[],
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+
+        except Exception as exc:
+            finished_at = datetime.now(timezone.utc)
+            return ExecutionResult(
+                tool_call_id=None,
+                tool_id=None,
+                status="error",
+                output=None,
+                error=f"Agent execution failed: {str(exc)}",
+                tool_calls=[],
+                started_at=started_at,
+                finished_at=finished_at,
+            )

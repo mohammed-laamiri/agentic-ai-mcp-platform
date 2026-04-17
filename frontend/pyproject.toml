@@ -1,0 +1,27 @@
+[project]
+name = "frontend"
+version = "0.1.0"
+description = "Frontend for Agentic AI MCP Platform"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+
+dependencies = [
+    # Django compatible with Python 3.11
+    "django>=5.2,<6.0",
+    "httpx>=0.27.2",
+    "python-decouple>=3.8"
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=0.23.0"
+]
