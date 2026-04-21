@@ -14,7 +14,10 @@ DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
 # Backend API URL
-BACKEND_API_URL = config('BACKEND_API_URL', default='http://localhost:8000/api')
+BACKEND_API_URL = config(
+    'BACKEND_API_URL',
+    default='https://agentic-ai-mcp-platform.fly.dev/api'
+)
 
 # Application definition
 INSTALLED_APPS = [

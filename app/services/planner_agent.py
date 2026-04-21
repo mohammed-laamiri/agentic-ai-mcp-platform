@@ -1,20 +1,15 @@
 # app/services/planner_agent.py
-from typing import List
+
+from typing import List, Dict, Any
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
 from app.schemas.execution_plan import ExecutionPlan
 from app.schemas.execution_strategy import ExecutionStrategy
 from app.schemas.agent_execution_context import AgentExecutionContext
-from app.schemas.tool_call import ToolCall
 from app.services.rag.rag_service import RAGService
 
 
 class PlannerAgent:
-    """
-    Planner Agent (Async-ready)
-    Responsible for SINGLE_AGENT and MULTI_AGENT planning
-    """
-
     def __init__(self, rag_service: RAGService | None = None) -> None:
         self._rag_service = rag_service
 
@@ -24,9 +19,12 @@ class PlannerAgent:
         task: TaskCreate,
         context: AgentExecutionContext | None = None,
     ) -> ExecutionPlan:
+
         task_text = (task.description or "").lower()
 
-        # RAG context
+        # -----------------------------
+        # SAFE RAG
+        # -----------------------------
         rag_context: List[str] = []
         if self._rag_service and task.description:
             try:
@@ -38,41 +36,37 @@ class PlannerAgent:
         rag_count = len(rag_context)
         is_complex = self._is_complex_task(task_text)
 
+        # -----------------------------
+        # BUILD STEPS
+        # -----------------------------
         if is_complex:
-            steps = self._assign_agents(task, agent)
-            agent_steps_with_tools = []
+            steps = [agent, agent]
+        else:
+            steps = [agent]
 
-            for idx, a in enumerate(steps):
-                # Assign numeric step ID
-                a_step = AgentRead(id=str(idx), name=a.name)
-                tools = self._assign_tools(task, a)
-                a_step.metadata = {"assigned_tools": tools}
-                agent_steps_with_tools.append(a_step)
+        agent_steps = []
 
-            if context:
-                context.metadata["planning_strategy"] = "multi_agent"
-                context.metadata["rag_context_count"] = rag_count
+        for idx, a in enumerate(steps):
+            a_step = AgentRead(id=str(idx), name=a.name)
 
-            return ExecutionPlan(
-                strategy=ExecutionStrategy.MULTI_AGENT,
-                steps=agent_steps_with_tools,
-                reason=f"Task classified as complex; multi-agent execution. RAG items: {rag_count}",
-            )
+            tools = self._assign_tools(task)
 
-        # Single agent
-        step_id = 0
-        agent_step = AgentRead(id=str(step_id), name=agent.name)
-        tools = self._assign_tools(task, agent)
-        agent_step.metadata = {"assigned_tools": tools}
+            # ✅ CRITICAL FIX: ALWAYS SAFE DICT
+            a_step_dict = a_step.model_dump()
+            a_step_dict["metadata"] = {
+                "assigned_tools": tools
+            }
+
+            agent_steps.append(AgentRead(**a_step_dict))
 
         if context:
-            context.metadata["planning_strategy"] = "single_agent"
+            context.metadata["planning_strategy"] = "multi_agent" if is_complex else "single_agent"
             context.metadata["rag_context_count"] = rag_count
 
         return ExecutionPlan(
-            strategy=ExecutionStrategy.SINGLE_AGENT,
-            steps=[agent_step],
-            reason=f"Task classified as simple; single-agent execution. RAG items: {rag_count}",
+            strategy=ExecutionStrategy.MULTI_AGENT if is_complex else ExecutionStrategy.SINGLE_AGENT,
+            steps=agent_steps,
+            reason=f"Task classified as {'complex' if is_complex else 'simple'}; RAG items: {rag_count}",
         )
 
     def _is_complex_task(self, task_text: str) -> bool:
@@ -82,56 +76,55 @@ class PlannerAgent:
         ]
         return any(k in task_text for k in keywords)
 
-    def _assign_agents(self, task: TaskCreate, lead_agent: AgentRead) -> List[AgentRead]:
-        # Return a list of agents; we will assign numeric IDs in plan()
-        return [lead_agent, lead_agent]
+    # ✅ RETURN PURE DICTS (NO PYDANTIC OBJECTS)
+    def _assign_tools(self, task: TaskCreate) -> List[Dict[str, Any]]:
+        text = ((task.description or "") + " " + (task.name or "")).lower()
 
-    def _assign_tools(self, task: TaskCreate, agent: AgentRead) -> List[ToolCall]:
-        return []
+        tools = []
 
-    # ==========================================================
-    # Sync method (backward compatibility)
-    # ==========================================================
+        if "echo" in text or "hello" in text or "test" in text:
+            tools.append({
+                "tool_id": "echo",
+                "arguments": {
+                    "message": task.description or task.name
+                }
+            })
 
+        return tools
+
+    # -----------------------------
+    # SYNC VERSION (MATCHES ABOVE)
+    # -----------------------------
     def plan_sync(
         self,
         agent: AgentRead,
         task: TaskCreate,
         context: AgentExecutionContext | None = None,
     ) -> ExecutionPlan:
-        """Synchronous planning method."""
+
         task_text = (task.description or "").lower()
         is_complex = self._is_complex_task(task_text)
 
-        if is_complex:
-            steps = self._assign_agents(task, agent)
-            agent_steps_with_tools = []
+        steps = [agent, agent] if is_complex else [agent]
+        agent_steps = []
 
-            for idx, a in enumerate(steps):
-                a_step = AgentRead(id=str(idx), name=a.name)
-                tools = self._assign_tools(task, a)
-                a_step.metadata = {"assigned_tools": tools}
-                agent_steps_with_tools.append(a_step)
+        for idx, a in enumerate(steps):
+            a_step = AgentRead(id=str(idx), name=a.name)
 
-            if context:
-                context.metadata["planning_strategy"] = "multi_agent"
+            tools = self._assign_tools(task)
 
-            return ExecutionPlan(
-                strategy=ExecutionStrategy.MULTI_AGENT,
-                steps=agent_steps_with_tools,
-                reason="Task classified as complex; multi-agent execution.",
-            )
+            a_step_dict = a_step.model_dump()
+            a_step_dict["metadata"] = {
+                "assigned_tools": tools
+            }
 
-        # Single agent
-        agent_step = AgentRead(id="0", name=agent.name)
-        tools = self._assign_tools(task, agent)
-        agent_step.metadata = {"assigned_tools": tools}
+            agent_steps.append(AgentRead(**a_step_dict))
 
         if context:
-            context.metadata["planning_strategy"] = "single_agent"
+            context.metadata["planning_strategy"] = "multi_agent" if is_complex else "single_agent"
 
         return ExecutionPlan(
-            strategy=ExecutionStrategy.SINGLE_AGENT,
-            steps=[agent_step],
-            reason="Task classified as simple; single-agent execution.",
+            strategy=ExecutionStrategy.MULTI_AGENT if is_complex else ExecutionStrategy.SINGLE_AGENT,
+            steps=agent_steps,
+            reason="Task classified automatically",
         )

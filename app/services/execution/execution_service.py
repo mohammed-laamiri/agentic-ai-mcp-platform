@@ -1,13 +1,4 @@
-# app/services/execution/execution_service.py
-"""
-Execution Service (Async)
-
-Handles execution of agent plans:
-- Standard execution
-- Streaming execution
-- Token-level events
-"""
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator, List, Optional, Any, Dict
 from uuid import uuid4
 
 from app.schemas.agent import AgentRead
@@ -22,9 +13,12 @@ from app.schemas.execution_event import ExecutionEvent, ExecutionEventType
 class ExecutionService:
     """
     Handles execution of agent plans.
-    Supports both standard and streaming execution.
+    SAFE VERSION: supports tool execution without breaking anything.
     """
 
+    # ==========================================================
+    # MAIN EXECUTION (ASYNC)
+    # ==========================================================
     async def execute_plan(
         self,
         agent: AgentRead,
@@ -32,6 +26,7 @@ class ExecutionService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
+
         final_result: Optional[ExecutionResult] = None
 
         async for event in self.stream_execute_plan(agent, task_in, plan, context):
@@ -39,6 +34,7 @@ class ExecutionService:
                 if event.result is None:
                     raise RuntimeError("Execution completed event missing result")
                 final_result = ExecutionResult(**event.result)
+
             if event.type == ExecutionEventType.EXECUTION_FAILED:
                 raise RuntimeError(event.error)
 
@@ -47,6 +43,9 @@ class ExecutionService:
 
         return final_result
 
+    # ==========================================================
+    # STREAM EXECUTION
+    # ==========================================================
     async def stream_execute_plan(
         self,
         agent: AgentRead,
@@ -54,9 +53,12 @@ class ExecutionService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> AsyncGenerator[ExecutionEvent, None]:
+
         execution_id = str(uuid4())
+
         try:
             yield ExecutionEvent(type=ExecutionEventType.EXECUTION_STARTED)
+
             step_outputs: List[str] = []
 
             for idx, step in enumerate(plan.steps):
@@ -69,31 +71,63 @@ class ExecutionService:
                     step_name=step_name,
                 )
 
-                accumulated_output = ""
-                simulated_output = (
-                    f"Executing step '{step_name}' for agent '{getattr(step, 'id', 'unknown')}'."
-                )
+                # ==================================================
+                # SAFE TOOL EXTRACTION (FIXED)
+                # ==================================================
+                tools = self._extract_tools(step)
 
-                for token in simulated_output.split(" "):
-                    token_piece = token + " "
-                    accumulated_output += token_piece
-                    yield ExecutionEvent(
-                        type=ExecutionEventType.TOKEN_CHUNK,
-                        step_id=step_id,
-                        step_name=step_name,
-                        token=token_piece,
+                # ==================================================
+                # TOOL EXECUTION
+                # ==================================================
+                if tools:
+                    tool_outputs = []
+
+                    for tool in tools:
+                        tool_id, args = self._normalize_tool(tool)
+
+                        if tool_id == "echo":
+                            message = args.get("message", "")
+                            output = f"[Echo Tool]: {message}"
+                        else:
+                            output = f"[Unknown tool: {tool_id}]"
+
+                        tool_outputs.append(output)
+
+                        for token in output.split(" "):
+                            yield ExecutionEvent(
+                                type=ExecutionEventType.TOKEN_CHUNK,
+                                step_id=step_id,
+                                step_name=step_name,
+                                token=token + " ",
+                            )
+
+                    final_step_output = " ".join(tool_outputs)
+
+                else:
+                    # fallback (original behavior)
+                    final_step_output = (
+                        f"Executing step '{step_name}' for agent '{step_id}'."
                     )
 
-                step_outputs.append(accumulated_output.strip())
+                    for token in final_step_output.split(" "):
+                        yield ExecutionEvent(
+                            type=ExecutionEventType.TOKEN_CHUNK,
+                            step_id=step_id,
+                            step_name=step_name,
+                            token=token + " ",
+                        )
+
+                step_outputs.append(final_step_output.strip())
 
                 yield ExecutionEvent(
                     type=ExecutionEventType.STEP_COMPLETED,
                     step_id=step_id,
                     step_name=step_name,
-                    result={"output": accumulated_output.strip()},
+                    result={"output": final_step_output.strip()},
                 )
 
             final_output = "\n".join(step_outputs)
+
             final_result = ExecutionResult(
                 execution_id=execution_id,
                 status="success",
@@ -113,9 +147,49 @@ class ExecutionService:
             raise
 
     # ==========================================================
-    # Sync API (backward compatibility)
+    # TOOL EXTRACTION (ROBUST)
     # ==========================================================
+    def _extract_tools(self, step) -> List[Any]:
+        """
+        Safely extract tools from step regardless of Pydantic/dict state.
+        """
+        tools = []
 
+        try:
+            # Case 1: normal object with metadata
+            metadata = getattr(step, "metadata", None)
+            if isinstance(metadata, dict):
+                tools = metadata.get("assigned_tools") or []
+
+            # Case 2: Pydantic model fallback
+            elif hasattr(step, "model_dump"):
+                step_dict = step.model_dump() or {}
+                tools = step_dict.get("metadata", {}).get("assigned_tools") or []
+
+        except Exception:
+            tools = []
+
+        return tools
+
+    # ==========================================================
+    # TOOL NORMALIZATION (SAFE)
+    # ==========================================================
+    def _normalize_tool(self, tool: Any) -> tuple[str, Dict]:
+        """
+        Returns (tool_id, args) safely for both dict and object tools.
+        """
+
+        if isinstance(tool, dict):
+            return tool.get("tool_id"), tool.get("arguments", {}) or {}
+
+        tool_id = getattr(tool, "tool_id", None)
+        args = getattr(tool, "arguments", None) or {}
+
+        return tool_id, args
+
+    # ==========================================================
+    # SYNC VERSION
+    # ==========================================================
     def execute_plan_sync(
         self,
         agent: AgentRead,
@@ -123,33 +197,30 @@ class ExecutionService:
         plan: ExecutionPlan,
         context: AgentExecutionContext,
     ) -> ExecutionResult:
-        """
-        Synchronous version of execute_plan.
-        """
+
         execution_id = str(uuid4())
         step_outputs: List[str] = []
 
-        # Handle SINGLE_AGENT with no steps
-        if plan.strategy == ExecutionStrategy.SINGLE_AGENT:
-            if not plan.steps:
-                # Use the provided agent directly
-                output = f"Executed task '{task_in.description}' with agent '{agent.name}'"
-                return ExecutionResult(
-                    execution_id=execution_id,
-                    status="success",
-                    output=output,
+        for idx, step in enumerate(plan.steps):
+
+            tools = self._extract_tools(step)
+
+            if tools:
+                for tool in tools:
+                    tool_id, args = self._normalize_tool(tool)
+
+                    if tool_id == "echo":
+                        message = args.get("message", "")
+                        step_outputs.append(f"[Echo Tool]: {message}")
+                    else:
+                        step_outputs.append(f"[Unknown tool: {tool_id}]")
+            else:
+                step_outputs.append(
+                    f"Executing step '{step.name}' for agent '{step.id}'"
                 )
 
-        # Process steps
-        steps = plan.steps or []
-        for idx, step in enumerate(steps):
-            step_name = getattr(step, "name", f"step-{idx}")
-            step_output = f"Executing step '{step_name}' for agent '{getattr(step, 'id', 'unknown')}'"
-            step_outputs.append(step_output)
-
-        final_output = "\n".join(step_outputs)
         return ExecutionResult(
             execution_id=execution_id,
             status="success",
-            output=final_output,
+            output="\n".join(step_outputs),
         )
