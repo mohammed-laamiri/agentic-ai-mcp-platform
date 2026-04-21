@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     def validate_production_secrets(self) -> "Settings":
         if self.environment == "production" and self.api_key == "dev-secret-key":
             raise ValueError("API_KEY must be set to a secure value in production")
+        # Heroku injects postgres:// but SQLAlchemy 2.x requires postgresql://
+        if self.database_url.startswith("postgres://"):
+            self.database_url = self.database_url.replace("postgres://", "postgresql://", 1)
         return self
 
 
