@@ -12,6 +12,8 @@ Phase 4 implemented:
 - Rate limiting middleware registered
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
@@ -38,12 +40,19 @@ from app.api.routers.streaming import router as streaming_router
 
 # Runtime singletons (tool registry, execution engine)
 from app.runtime import runtime  # noqa: F401
+from app.core.db import init_db
 
 
 # ------------------------------
 # Configure logging ONCE (global)
 # ------------------------------
 configure_logging()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
 
 
 def create_app() -> FastAPI:
@@ -60,6 +69,7 @@ def create_app() -> FastAPI:
         title=settings.app_name,
         version="0.1.0",
         description="Agentic AI MCP Platform API",
+        lifespan=lifespan,
     )
 
     # ------------------------------

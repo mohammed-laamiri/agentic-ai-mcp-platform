@@ -11,18 +11,15 @@ dependencies = [
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
     "typing-extensions>=4.15.0",
-
     # Database
     "sqlmodel>=0.0.18",
-
     # Vector database
     "chromadb>=1.5.5",
-
     # Rate limiting
     "slowapi>=0.1.9",
-
     # ONNX Runtime (LAST version supporting macOS Intel)
     "onnxruntime==1.16.3",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [dependency-groups]
