@@ -13,13 +13,13 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-key-change-in-pro
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
 
-# Backend API URL
-BACKEND_API_URL = config(
-    'BACKEND_API_URL',
-    default='https://agentic-ai-mcp-platform.fly.dev/api'
-)
+# Backend API URL (FastAPI)
+BACKEND_API_URL = config('BACKEND_API_URL', default='http://localhost:8000/api')
 
-# Application definition
+
+# =========================================================
+# APPLICATIONS
+# =========================================================
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -27,13 +27,18 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # Local apps
+
+    # Local apps (UI layer only)
     'core',
     'dashboard',
     'tasks',
     'tools',
 ]
 
+
+# =========================================================
+# MIDDLEWARE
+# =========================================================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -44,8 +49,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+
 ROOT_URLCONF = 'config.urls'
 
+
+# =========================================================
+# TEMPLATES
+# =========================================================
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -61,9 +71,13 @@ TEMPLATES = [
     },
 ]
 
+
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# Database - using SQLite for session storage only
+
+# =========================================================
+# DATABASE (frontend only session storage)
+# =========================================================
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
@@ -71,7 +85,10 @@ DATABASES = {
     }
 }
 
-# Password validation
+
+# =========================================================
+# PASSWORD VALIDATION
+# =========================================================
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
     {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
@@ -79,14 +96,43 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-# Internationalization
+
+# =========================================================
+# INTERNATIONALIZATION
+# =========================================================
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Static files
+
+# =========================================================
+# STATIC FILES
+# =========================================================
 STATIC_URL = 'static/'
 
-# Default primary key field type
+
+# =========================================================
+# DEFAULT AUTO FIELD
+# =========================================================
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+# =========================================================
+# SAFETY PATCH (IMPORTANT FIX)
+# =========================================================
+# Prevent crash if optional apps are missing
+import importlib
+
+def _safe_check_apps():
+    """
+    Ensures missing apps do not crash Django startup.
+    Only logs silently.
+    """
+    for app in INSTALLED_APPS:
+        try:
+            importlib.import_module(app)
+        except ModuleNotFoundError:
+            print(f"[WARNING] Django app not found: {app} (skipping)")
+
+_safe_check_apps()

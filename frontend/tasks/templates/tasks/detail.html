@@ -3,93 +3,164 @@
 {% block title %}{{ task.name }} - Tasks - MCP Platform{% endblock %}
 
 {% block content %}
+
 <div class="mb-6">
     <a href="{% url 'tasks:list' %}" class="text-indigo-600 hover:text-indigo-900">
         &larr; Back to Tasks
     </a>
 </div>
 
+<!-- ================= TASK HEADER ================= -->
 <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+
     <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
         <div>
-            <h3 class="text-lg leading-6 font-medium text-gray-900">{{ task.name }}</h3>
-            <p class="mt-1 max-w-2xl text-sm text-gray-500">Task ID: {{ task.id }}</p>
+            <h3 class="text-lg font-medium text-gray-900">{{ task.name }}</h3>
+            <p class="text-sm text-gray-500">Task ID: {{ task.id }}</p>
         </div>
-        <div>
-            {% include "components/status_badge.html" with status=task.status %}
-        </div>
+
+        {% include "components/status_badge.html" with status=task.status %}
     </div>
+
     <div class="border-t border-gray-200">
         <dl>
+
             <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                 <dt class="text-sm font-medium text-gray-500">Description</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                <dd class="text-sm text-gray-900 sm:col-span-2">
                     {{ task.description|default:"No description" }}
                 </dd>
             </div>
+
             <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                <dt class="text-sm font-medium text-gray-500">Priority</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                    {{ task.priority|default:"1" }}
-                </dd>
-            </div>
-            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                 <dt class="text-sm font-medium text-gray-500">Created At</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
+                <dd class="text-sm text-gray-900 sm:col-span-2">
                     {{ task.created_at }}
                 </dd>
             </div>
-            {% if task.completed_at %}
-            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                <dt class="text-sm font-medium text-gray-500">Completed At</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                    {{ task.completed_at }}
-                </dd>
-            </div>
-            {% endif %}
-            {% if task.input %}
-            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                <dt class="text-sm font-medium text-gray-500">Input</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                    <pre class="bg-gray-100 rounded p-3 overflow-auto text-xs">{{ task.input|default:"{}"|pprint }}</pre>
-                </dd>
-            </div>
-            {% endif %}
+
             {% if task.result %}
-            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
+            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
                 <dt class="text-sm font-medium text-gray-500">Result</dt>
-                <dd class="mt-1 text-sm text-gray-900 sm:mt-0 sm:col-span-2">
-                    <pre class="bg-gray-100 rounded p-3 overflow-auto text-xs">{{ task.result|pprint }}</pre>
+                <dd class="text-sm text-gray-900 sm:col-span-2">
+                    <pre class="bg-gray-100 p-3 rounded text-xs overflow-auto">{{ task.result }}</pre>
                 </dd>
             </div>
             {% endif %}
+
         </dl>
     </div>
 </div>
 
-{% if task.status == 'pending' %}
-<div class="mt-6 flex space-x-3">
-    <form method="post" action="{% url 'tasks:execute' task.id %}">
-        {% csrf_token %}
-        <button type="submit"
-                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
-            Execute Task
-        </button>
-    </form>
-    <form method="post" action="{% url 'tasks:complete' task.id %}">
-        {% csrf_token %}
-        <button type="submit"
-                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700">
-            Mark Complete
-        </button>
-    </form>
-    <form method="post" action="{% url 'tasks:fail' task.id %}">
-        {% csrf_token %}
-        <button type="submit"
-                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-600 hover:bg-red-700">
-            Mark Failed
-        </button>
-    </form>
+<!-- ================= ACTION BUTTON ================= -->
+<div class="mt-6">
+    <button onclick="startStream()"
+        class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+        Run with Live Streaming
+    </button>
 </div>
-{% endif %}
+
+<!-- ================= STREAM SECTION ================= -->
+<div class="mt-6 border rounded bg-black text-green-400 font-mono text-xs p-4 h-96 overflow-auto">
+    <div id="stream-log">Waiting for execution...</div>
+</div>
+
+<!-- ================= SSE SCRIPT ================= -->
+<script>
+function startStream() {
+
+    const log = document.getElementById("stream-log");
+    log.innerHTML = "";
+
+    // ✅ IMPORTANT: hit backend directly (NOT Django)
+    const url = "http://127.0.0.1:8000/api/execute/stream?task_id={{ task.id }}";
+
+    const source = new EventSource(url);
+
+    let completed = false;
+
+    append("🟢 Connecting...");
+
+    source.onopen = function () {
+        append("🟢 Stream connected");
+    };
+
+    // 👇 ONLY fallback — do NOT rely on this
+    source.onmessage = function (event) {
+        try {
+            const data = JSON.parse(event.data);
+            append("📩 " + (data.type || "message"));
+        } catch (e) {
+            append("⚠️ invalid message");
+        }
+    };
+
+    source.addEventListener("planning_started", function () {
+        append("\n🧠 Planning started");
+    });
+
+    source.addEventListener("plan_created", function (event) {
+        const data = JSON.parse(event.data);
+        append("\n📋 Plan created (" + data.strategy + ")");
+    });
+
+    source.addEventListener("execution_started", function () {
+        append("\n⚡ Execution started");
+    });
+
+    source.addEventListener("step_started", function (event) {
+        const data = JSON.parse(event.data);
+        append("\n▶️ Step: " + data.step_name);
+    });
+
+    source.addEventListener("token_chunk", function (event) {
+        const data = JSON.parse(event.data);
+        appendInline(data.token || "");
+    });
+
+    source.addEventListener("step_completed", function () {
+        append("\n✅ Step completed");
+    });
+
+    source.addEventListener("execution_completed", function (event) {
+        const data = JSON.parse(event.data);
+        completed = true;
+
+        append("\n\n🎉 DONE");
+        append("\nOutput: " + (data.result?.output || ""));
+
+        source.close();
+    });
+
+    source.addEventListener("execution_failed", function (event) {
+        const data = JSON.parse(event.data);
+        completed = true;
+
+        append("\n❌ FAILED: " + (data.error || "unknown"));
+
+        source.close();
+    });
+
+    // ✅ CRITICAL FIX
+    source.onerror = function () {
+        if (!completed) {
+            append("\n⚠️ connection interrupted (retrying...)");
+        } else {
+            append("\n🔚 Stream finished");
+        }
+        // ❌ DO NOT close here
+    };
+
+    function append(text) {
+        log.innerHTML += text + "\n";
+        log.scrollTop = log.scrollHeight;
+    }
+
+    function appendInline(text) {
+        log.innerHTML += text;
+        log.scrollTop = log.scrollHeight;
+    }
+}
+</script>
+
 {% endblock %}

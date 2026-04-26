@@ -58,7 +58,11 @@ def task_detail(request, task_id):
         messages.error(request, str(e))
         return redirect('tasks:list')
 
-    return render(request, 'tasks/detail.html', {'task': task})
+    context = {
+        "task": task
+    }
+
+    return render(request, 'tasks/detail.html', context)
 
 
 def task_create(request):
@@ -78,7 +82,6 @@ def task_create(request):
                 api_client.create_task(data)
                 messages.success(request, "Task created successfully")
 
-                # HTMX redirect
                 if request.headers.get('HX-Request'):
                     response = HttpResponse()
                     response['HX-Redirect'] = '/tasks/'
@@ -105,7 +108,6 @@ def task_execute(request, task_id):
         task = api_client.execute_task(task_id)
         messages.success(request, f"Task '{task.get('name', task_id)}' executed successfully")
 
-        # Return updated row for HTMX
         if request.headers.get('HX-Request'):
             return render(request, 'tasks/partials/task_row.html', {'task': task})
 
@@ -133,7 +135,6 @@ def task_complete(request, task_id):
         task = api_client.complete_task(task_id, result)
         messages.success(request, f"Task '{task.get('name', task_id)}' marked as completed")
 
-        # Return updated row for HTMX
         if request.headers.get('HX-Request'):
             return render(request, 'tasks/partials/task_row.html', {'task': task})
 
@@ -159,7 +160,6 @@ def task_fail(request, task_id):
         task = api_client.fail_task(task_id, error_message)
         messages.success(request, f"Task '{task.get('name', task_id)}' marked as failed")
 
-        # Return updated row for HTMX
         if request.headers.get('HX-Request'):
             return render(request, 'tasks/partials/task_row.html', {'task': task})
 
