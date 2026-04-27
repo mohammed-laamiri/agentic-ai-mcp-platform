@@ -1,68 +1,35 @@
 [project]
 name = "agentic-ai-mcp-platform"
 version = "0.1.0"
-description = "Agentic AI MCP Platform"
-requires-python = ">=3.11,<3.12"
+description = "Agentic AI MCP Platform built with Django"
+readme = "README.md"
+requires-python = ">=3.11"
 
 dependencies = [
-    # FastAPI stack
-    "fastapi>=0.101,<0.110",
-    "uvicorn>=0.23",
-    "pydantic>=2.0",
-    "pydantic-settings>=2.0",
-    "typing-extensions>=4.15.0",
-
-    # Database
-    "sqlmodel>=0.0.18",
-
-    # Vector database
-    "chromadb>=1.5.5",
-
-    # Rate limiting
-    "slowapi>=0.1.9",
-
-    # ONNX Runtime (LAST version supporting macOS Intel)
-    "onnxruntime==1.16.3",
+    "django>=5.0",
+    "gunicorn>=21.2.0",
+    "python-decouple>=3.8",
+    "requests>=2.31.0",
+    "openai>=1.0.0",
 ]
 
-[dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=0.23.0",
-    "pytest-cov>=7.0.0",
-    "httpx>=0.24,<0.28",
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = [
+    "config",
+    "core",
+    "dashboard",
+    "tasks",
+    "tools"
 ]
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]
-asyncio_mode = "auto"
-
-filterwarnings = [
-    "ignore:The 'app' shortcut is now deprecated:DeprecationWarning",
+[tool.setuptools.package-data]
+"*" = [
+    "templates/**/*",
+    "static/**/*",
+    "*.html"
 ]
 
-[tool.coverage.run]
-source = ["app"]
-
-omit = [
-    "app/api/v1/*",
-    "app/repositories/*",
-    "app/services/tool_execution_service.py",
-    "app/services/tools/base.py",
-    "app/models/base.py",
-    "app/schemas/tool_execution.py",
-    "app/services/rag/bedrock_embedding_service.py",
-    "app/services/rag/chroma_adapter.py",
-    "app/services/rag/ingestion_service.py",
-    "app/services/v1/multi_agent.py",
-    "app/runtime/*",
-    "app/mvp_tools.py",
-    "app/mvp_tools_registry.py",
-]
-
-[tool.uv.workspace]
-members = [
-    "frontend"
-]
-
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

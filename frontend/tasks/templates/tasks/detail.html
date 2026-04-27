@@ -52,17 +52,23 @@
     </div>
 </div>
 
-<!-- ================= ACTION BUTTON ================= -->
-<div class="mt-6">
+<!-- ================= STREAM SECTION ================= -->
+<div class="mt-10 border-t pt-6">
+
+    <h3 class="text-lg font-semibold mb-3">
+        Live Agent Execution
+    </h3>
+
     <button onclick="startStream()"
-        class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+        class="mb-3 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
         Run with Live Streaming
     </button>
-</div>
 
-<!-- ================= STREAM SECTION ================= -->
-<div class="mt-6 border rounded bg-black text-green-400 font-mono text-xs p-4 h-96 overflow-auto">
-    <div id="stream-log">Waiting for execution...</div>
+    <div id="stream-log"
+         class="bg-black text-green-400 p-3 h-96 overflow-auto text-xs font-mono rounded">
+        Waiting for execution...
+    </div>
+
 </div>
 
 <!-- ================= SSE SCRIPT ================= -->
@@ -72,45 +78,30 @@ function startStream() {
     const log = document.getElementById("stream-log");
     log.innerHTML = "";
 
-    // ✅ IMPORTANT: hit backend directly (NOT Django)
-    const url = "http://127.0.0.1:8000/api/execute/stream?task_id={{ task.id }}";
-
-    const source = new EventSource(url);
-
     let completed = false;
 
     append("🟢 Connecting...");
 
-    source.onopen = function () {
-        append("🟢 Stream connected");
-    };
+    // ✅ FIX: use same-origin URL (Fly-safe, no localhost)
+    const source = new EventSource(
+        "/api/execute/stream?task_id={{ task.id }}"
+    );
 
-    // 👇 ONLY fallback — do NOT rely on this
-    source.onmessage = function (event) {
-        try {
-            const data = JSON.parse(event.data);
-            append("📩 " + (data.type || "message"));
-        } catch (e) {
-            append("⚠️ invalid message");
-        }
+    source.onopen = function () {
+        append("🟢 Connected");
     };
 
     source.addEventListener("planning_started", function () {
-        append("\n🧠 Planning started");
-    });
-
-    source.addEventListener("plan_created", function (event) {
-        const data = JSON.parse(event.data);
-        append("\n📋 Plan created (" + data.strategy + ")");
+        append("🧠 Planning started");
     });
 
     source.addEventListener("execution_started", function () {
-        append("\n⚡ Execution started");
+        append("⚡ Execution started");
     });
 
     source.addEventListener("step_started", function (event) {
         const data = JSON.parse(event.data);
-        append("\n▶️ Step: " + data.step_name);
+        append("▶️ Step: " + data.step_name);
     });
 
     source.addEventListener("token_chunk", function (event) {
@@ -118,37 +109,23 @@ function startStream() {
         appendInline(data.token || "");
     });
 
-    source.addEventListener("step_completed", function () {
-        append("\n✅ Step completed");
-    });
-
     source.addEventListener("execution_completed", function (event) {
         const data = JSON.parse(event.data);
         completed = true;
 
-        append("\n\n🎉 DONE");
+        append("\n🎉 DONE");
         append("\nOutput: " + (data.result?.output || ""));
 
         source.close();
     });
 
-    source.addEventListener("execution_failed", function (event) {
-        const data = JSON.parse(event.data);
-        completed = true;
-
-        append("\n❌ FAILED: " + (data.error || "unknown"));
-
-        source.close();
-    });
-
-    // ✅ CRITICAL FIX
     source.onerror = function () {
         if (!completed) {
-            append("\n⚠️ connection interrupted (retrying...)");
+            append("\n❌ Stream failed");
         } else {
-            append("\n🔚 Stream finished");
+            append("\n⚠️ Stream closed");
         }
-        // ❌ DO NOT close here
+        source.close();
     };
 
     function append(text) {

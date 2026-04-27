@@ -3,6 +3,7 @@
 {% block title %}Create Task - MCP Platform{% endblock %}
 
 {% block content %}
+
 <div class="mb-6">
     <a href="{% url 'tasks:list' %}" class="text-indigo-600 hover:text-indigo-900">
         &larr; Back to Tasks
@@ -11,58 +12,85 @@
 
 <div class="bg-white shadow sm:rounded-lg">
     <div class="px-4 py-5 sm:p-6">
-        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-6">Create New Task</h3>
 
-        <form method="post" hx-post="{% url 'tasks:create' %}" hx-swap="none">
+        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-6">
+            Create New Task
+        </h3>
+
+        <!-- ✅ CLEAN HTMX + DJANGO CSRF SAFE FORM -->
+        <form
+            method="post"
+            hx-post="{% url 'tasks:create' %}"
+            hx-swap="none"
+        >
+
             {% csrf_token %}
 
             <div class="space-y-6">
+
                 <div>
-                    <label for="id_name" class="block text-sm font-medium text-gray-700">Name *</label>
+                    <label for="id_name" class="block text-sm font-medium text-gray-700">
+                        Name *
+                    </label>
                     {{ form.name }}
                     {% if form.name.errors %}
-                    <p class="mt-1 text-sm text-red-600">{{ form.name.errors.0 }}</p>
+                        <p class="mt-1 text-sm text-red-600">{{ form.name.errors.0 }}</p>
                     {% endif %}
                 </div>
 
                 <div>
-                    <label for="id_description" class="block text-sm font-medium text-gray-700">Description</label>
+                    <label for="id_description" class="block text-sm font-medium text-gray-700">
+                        Description
+                    </label>
                     {{ form.description }}
                     {% if form.description.errors %}
-                    <p class="mt-1 text-sm text-red-600">{{ form.description.errors.0 }}</p>
+                        <p class="mt-1 text-sm text-red-600">{{ form.description.errors.0 }}</p>
                     {% endif %}
                 </div>
 
                 <div>
-                    <label for="id_priority" class="block text-sm font-medium text-gray-700">Priority (1-10)</label>
+                    <label for="id_priority" class="block text-sm font-medium text-gray-700">
+                        Priority (1-10)
+                    </label>
                     {{ form.priority }}
                     {% if form.priority.errors %}
-                    <p class="mt-1 text-sm text-red-600">{{ form.priority.errors.0 }}</p>
+                        <p class="mt-1 text-sm text-red-600">{{ form.priority.errors.0 }}</p>
                     {% endif %}
                 </div>
 
                 <div>
-                    <label for="id_input_json" class="block text-sm font-medium text-gray-700">Input (JSON)</label>
+                    <label for="id_input_json" class="block text-sm font-medium text-gray-700">
+                        Input (JSON)
+                    </label>
                     {{ form.input_json }}
-                    <p class="mt-1 text-sm text-gray-500">Optional JSON input data for the task</p>
+                    <p class="mt-1 text-sm text-gray-500">
+                        Optional JSON input data for the task
+                    </p>
                     {% if form.input_json.errors %}
-                    <p class="mt-1 text-sm text-red-600">{{ form.input_json.errors.0 }}</p>
+                        <p class="mt-1 text-sm text-red-600">{{ form.input_json.errors.0 }}</p>
                     {% endif %}
                 </div>
 
                 <div class="flex justify-end space-x-3">
+
                     <a href="{% url 'tasks:list' %}"
-                       class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
+                       class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm rounded-md text-gray-700 bg-white hover:bg-gray-50">
                         Cancel
                     </a>
+
                     <button type="submit"
-                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm rounded-md text-white bg-indigo-600 hover:bg-indigo-700">
                         Create Task
                         <span class="htmx-indicator ml-2">...</span>
                     </button>
+
                 </div>
+
             </div>
+
         </form>
+
     </div>
 </div>
+
 {% endblock %}

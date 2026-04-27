@@ -1,35 +1,38 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
 
 
 class Settings(BaseSettings):
     """
     Central application configuration.
 
-    Loaded from environment variables and .env file.
+    SAFE DESIGN:
+    - One canonical field: api_key
+    - Accepts env var: API_KEY
+    - Avoids casing bugs entirely
     """
 
     app_name: str = "Agentic AI MCP Platform"
     environment: str = "development"
 
-    # API
     api_prefix: str = "/api"
 
-    # Server
     host: str = "127.0.0.1"
     port: int = 8000
 
-    # Infrastructure
     database_url: str = "sqlite:///./app.db"
-    api_key: str = "dev-secret-key"
 
-    # AWS / Bedrock (placeholders for later)
+    # ✅ SAFE + EXPLICIT MAPPING
+    api_key: str = Field(default="test", alias="API_KEY")
+
     aws_region: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
 
@@ -37,6 +40,5 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """
     Cached settings instance.
-    Ensures settings are loaded only once.
     """
     return Settings()

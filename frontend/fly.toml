@@ -2,7 +2,7 @@ app = "agentic-ai-backend"
 primary_region = "iad"
 
 [build]
-  dockerfile = "fly-backend/Dockerfile"
+  dockerfile = "Dockerfile.backend"
 
 [env]
   PORT = "8000"

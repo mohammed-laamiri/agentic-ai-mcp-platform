@@ -1,47 +1,47 @@
 """
 Authentication dependency for API layer.
 
-This module is intentionally isolated at the API boundary.
-It must NOT be imported inside domain or service layers.
-
-Phase 4 scope:
-- Simple API key validation
-- Replaceable later with JWT or OAuth
+Simple API key validation (Phase 4)
+- Robust against Pydantic env naming mismatches
 """
 
 from typing import Optional
-
 from fastapi import Header, HTTPException, status
-
 from app.core.config import get_settings
 
 
-# Temporary development default.
-# Production should override this through environment variables.
-DEV_API_KEY = "dev-secret-key"
-
-
 async def require_api_key(
-    x_api_key: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
 ) -> str:
     """
-    FastAPI dependency that validates the X-API-Key header.
+    Validates API key from request header.
 
-    - Executed before route handler
-    - Raises 401 if invalid
-    - Returns the validated key otherwise
-
-    This keeps authentication logic outside business logic.
+    Header:
+        X-API-Key: <key>
     """
 
-    configured_api_key = get_settings().api_key
+    settings = get_settings()
 
-    # Reject if header is missing or incorrect
-    if x_api_key != configured_api_key:
+    # SAFE: supports both env styles (api_key / API_KEY mismatch issue)
+    configured_api_key = getattr(settings, "api_key", None) or getattr(settings, "API_KEY", None)
+
+    if not configured_api_key:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Server misconfigured: missing API key in settings",
         )
 
-    # Return key for potential future use
+    if not x_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing API key",
+        )
+
+    # Clean comparison (no hidden whitespace issues)
+    if x_api_key.strip() != str(configured_api_key).strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key",
+        )
+
     return x_api_key
