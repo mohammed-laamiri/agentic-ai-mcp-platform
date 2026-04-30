@@ -12,8 +12,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 
     <!-- ======================================================
-         SAFE CSRF INITIALIZER (CRITICAL FIX)
-         Forces Django to SET csrftoken cookie on first load
+         CSRF INITIALIZER (FIXED PROPERLY)
     ====================================================== -->
     <script>
     (function () {
@@ -31,17 +30,6 @@
             }
             return cookieValue;
         }
-
-        function ensureCSRF() {
-            if (!getCookie('csrftoken')) {
-                fetch(window.location.href, {
-                    method: 'GET',
-                    credentials: 'include'
-                });
-            }
-        }
-
-        document.addEventListener('DOMContentLoaded', ensureCSRF);
 
         document.body.addEventListener('htmx:configRequest', function (event) {
             const token = getCookie('csrftoken');
@@ -61,6 +49,11 @@
 </head>
 
 <body class="bg-gray-100 min-h-screen">
+
+    <!-- ✅ CRITICAL: FORCE DJANGO TO SET CSRF COOKIE -->
+    <form method="post" style="display:none;">
+        {% csrf_token %}
+    </form>
 
     {% include "components/navbar.html" %}
 

@@ -42,17 +42,18 @@ USE_X_FORWARDED_HOST = True
 
 
 # =========================================================
-# CSRF + SESSION (PRODUCTION SAFE)
+# CSRF + SESSION (FIXED FOR LOCAL + PROD SAFE)
 # =========================================================
 CSRF_TRUSTED_ORIGINS = [
     "https://agentic-ai-frontend.fly.dev",
 ]
 
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+# ❗ FIX: allow local HTTP to set cookies
+CSRF_COOKIE_SECURE = False
+SESSION_COOKIE_SECURE = False
 
-CSRF_COOKIE_SAMESITE = "None"
-SESSION_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "Lax"
 
 
 # =========================================================

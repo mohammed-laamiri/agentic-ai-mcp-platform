@@ -57,6 +57,10 @@ def task_detail(request, task_id):
         messages.error(request, str(e))
         return redirect("tasks:list")
 
+    # 🔥 FORCE CSRF COOKIE CREATION
+    from django.middleware.csrf import get_token
+    get_token(request)
+
     return render(request, "tasks/detail.html", {"task": task})
 
 
