@@ -7,20 +7,23 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /code
 
-# Install uv (fast dependency manager)
-RUN pip install uv
+# Install system dependencies
+RUN pip install --upgrade pip
 
-# Copy dependency files first (for caching)
-COPY pyproject.toml uv.lock /code/
+# Copy dependency files first (better caching)
+COPY pyproject.toml /code/
 
-# Install dependencies
-RUN uv sync --frozen --no-dev
+# Install dependencies safely (production-ready approach)
+RUN pip install django gunicorn python-decouple
 
 # Copy full project
 COPY . /code
 
-# Expose FastAPI port
+# Collect static files (FAIL LOUD if broken)
+RUN python manage.py collectstatic --noinput
+
+# Expose port
 EXPOSE 8000
 
-# Start FastAPI (IMPORTANT: adjust if your entrypoint differs)
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run Django with Gunicorn (production)
+CMD ["sh", "-c", "gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000}"]

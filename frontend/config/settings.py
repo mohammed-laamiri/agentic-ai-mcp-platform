@@ -20,7 +20,7 @@ DEBUG = config('DEBUG', default=True, cast=bool)
 
 ALLOWED_HOSTS = config(
     'ALLOWED_HOSTS',
-    default='localhost,127.0.0.1,agentic-ai-frontend.fly.dev',
+    default='localhost,127.0.0.1,agentic-ai-frontend.fly.dev,agentic-ai-backend.fly.dev',
     cast=Csv()
 )
 
@@ -30,34 +30,36 @@ ALLOWED_HOSTS = config(
 # =========================================================
 BACKEND_API_URL = config(
     'BACKEND_API_URL',
-    default='http://localhost:8000/api'
+    default='https://agentic-ai-backend.fly.dev/api'
 )
 
 
 # =========================================================
-# 🔥 CRITICAL FIX (FLY.IO + HTTPS PROXY)
+# PROXY (Fly.io)
 # =========================================================
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 USE_X_FORWARDED_HOST = True
 
 
 # =========================================================
-# CSRF + SESSION (FIXED FOR LOCAL + PROD SAFE)
+# CSRF + SESSION (PRODUCTION SAFE)
 # =========================================================
 CSRF_TRUSTED_ORIGINS = [
     "https://agentic-ai-frontend.fly.dev",
+    "https://agentic-ai-backend.fly.dev",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
 ]
 
-# ❗ FIX: allow local HTTP to set cookies
-CSRF_COOKIE_SECURE = False
-SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
 
 CSRF_COOKIE_SAMESITE = "Lax"
 SESSION_COOKIE_SAMESITE = "Lax"
 
 
 # =========================================================
-# APPLICATIONS
+# CORS (CRITICAL FIX)
 # =========================================================
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -72,18 +74,18 @@ INSTALLED_APPS = [
     'dashboard',
     'tasks',
     'tools',
+
+    # CORS
+    'corsheaders',
 ]
 
-
-# =========================================================
-# MIDDLEWARE
-# =========================================================
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # MUST be first
+
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
 
-    # MUST be enabled for CSRF
     'django.middleware.csrf.CsrfViewMiddleware',
 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -91,7 +93,17 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    "https://agentic-ai-frontend.fly.dev",
+    "http://localhost:8000",
+]
 
+CORS_ALLOW_CREDENTIALS = True
+
+
+# =========================================================
+# APPLICATIONS
+# =========================================================
 ROOT_URLCONF = 'config.urls'
 
 
