@@ -423,3 +423,11 @@ Agentic Systems • AI Infrastructure • Platform Engineering
 # Acknowledgments
 
 This project explores modern approaches to **agent-based AI system architecture**, focusing on reliability, modularity, and scalable orchestration.
+
+---
+
+## 📄 End-to-End Use Case
+
+A detailed walkthrough of how the system works in a real scenario:
+
+👉 See [docs/use-case.md](docs/use-case.md)
