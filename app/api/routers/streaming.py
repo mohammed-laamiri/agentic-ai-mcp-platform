@@ -1,25 +1,24 @@
 """
-Streaming Execution Route (SSE)
+Streaming Execution Route (SSE - GET based)
 
-Provides real-time execution streaming via Server-Sent Events.
+This is the browser-compatible version using EventSource.
 
-Design principles:
-- Streaming is handled strictly at the API layer
-- Business logic remains inside OrchestratorService
-- SSE format follows RFC standards
-- Future-ready for token-level streaming
+Key fixes:
+- Uses GET instead of POST (required for EventSource)
+- Uses task_id from query params
+- Uses orchestrator.stream_execute (real streaming)
+- SSE compliant
 """
 
-import asyncio
 import json
-import uuid
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
 from app.schemas.agent import AgentRead
 from app.schemas.task import TaskCreate
+from app.schemas.execution_event import ExecutionEvent
 from app.services.orchestrator import OrchestratorService
 from app.api.deps import get_orchestrator
 
@@ -27,86 +26,59 @@ from app.api.deps import get_orchestrator
 router = APIRouter()
 
 
-# ============================
-# Request Schema
-# ============================
+# ==========================================================
+# MAIN STREAM ENDPOINT (BROWSER SAFE)
+# ==========================================================
 
-class StreamExecutionRequest(TaskCreate):
-    """
-    Combines Agent + Task payload into a single request body.
-
-    This avoids FastAPI multiple-body-parameter issues.
-    """
-
-    agent: AgentRead
-
-
-# ============================
-# Streaming Endpoint
-# ============================
-
-@router.post("/execute/stream")
+@router.get("/execute/stream")
 async def stream_execution(
-    request: Request,
-    payload: StreamExecutionRequest,
+    task_id: str = Query(...),
     orchestrator: OrchestratorService = Depends(get_orchestrator),
 ):
     """
-    Stream execution lifecycle events in real time using SSE.
+    SSE endpoint for browser EventSource.
+
+    NOTE:
+    - Must be GET (EventSource requirement)
+    - task_id is passed via query param
     """
 
     async def event_generator() -> AsyncGenerator[str, None]:
         event_id = 0
 
         try:
-            # 🔹 Starting event
+            # 1. connection event
             event_id += 1
             yield _format_sse(
-                event="status",
-                data={"state": "starting"},
+                event="connection",
+                data={"status": "connected", "task_id": task_id},
                 event_id=event_id,
             )
 
-            # 🔹 Optional heartbeat loop (in case execution is long)
-            heartbeat_task = asyncio.create_task(
-                _heartbeat(request)
+            # 2. minimal task payload (adapter layer)
+            task_in = TaskCreate(
+                name=f"task-{task_id}",
+                description="stream execution",
             )
 
-            # Execute orchestrator
-            result = await orchestrator.execute(
-                agent=payload.agent,
-                task_in=payload,
-            )
+            # 3. stream from orchestrator
+            async for event in orchestrator.stream_execute(
+                agent=_default_agent(),
+                task_in=task_in,
+            ):
+                event_id += 1
 
-            # Cancel heartbeat once done
-            heartbeat_task.cancel()
-
-            # Result event
-            event_id += 1
-            yield _format_sse(
-                event="result",
-                data=result.model_dump(),
-                event_id=event_id,
-            )
-
-            # Completed event
-            event_id += 1
-            yield _format_sse(
-                event="status",
-                data={"state": "completed"},
-                event_id=event_id,
-            )
-
-        except asyncio.CancelledError:
-            # Client disconnected
-            return
+                yield _format_sse(
+                    event=event.type.value,
+                    data=_event_to_dict(event),
+                    event_id=event_id,
+                )
 
         except Exception as exc:
-            event_id += 1
             yield _format_sse(
                 event="error",
                 data={"message": str(exc)},
-                event_id=event_id,
+                event_id=999,
             )
 
     return StreamingResponse(
@@ -119,14 +91,25 @@ async def stream_execution(
     )
 
 
-# ============================
-# Helpers
-# ============================
+# ==========================================================
+# HELPERS
+# ==========================================================
+
+def _event_to_dict(event: ExecutionEvent) -> dict:
+    return {
+        "type": event.type.value,
+        "step_id": event.step_id,
+        "step_name": event.step_name,
+        "strategy": event.strategy,
+        "token": event.token,
+        "steps": event.steps,
+        "result": event.result,
+        "error": event.error,
+        "metadata": event.metadata,
+    }
+
 
 def _format_sse(event: str, data: dict, event_id: int) -> str:
-    """
-    Format Server-Sent Event message according to SSE spec.
-    """
     return (
         f"id: {event_id}\n"
         f"event: {event}\n"
@@ -134,15 +117,11 @@ def _format_sse(event: str, data: dict, event_id: int) -> str:
     )
 
 
-async def _heartbeat(request: Request, interval: int = 15):
+def _default_agent() -> AgentRead:
     """
-    Periodic heartbeat to keep connection alive during long executions.
-    Stops automatically if client disconnects.
+    Temporary fallback agent until frontend passes real agent.
     """
-    try:
-        while True:
-            if await request.is_disconnected():
-                break
-            await asyncio.sleep(interval)
-    except asyncio.CancelledError:
-        return
+    return AgentRead(
+        id="default-agent",
+        name="default-agent",
+    )

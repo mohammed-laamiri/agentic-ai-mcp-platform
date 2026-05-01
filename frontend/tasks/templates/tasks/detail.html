@@ -1,166 +1,71 @@
 {% extends "base.html" %}
 
-{% block title %}{{ task.name }} - Tasks - MCP Platform{% endblock %}
+{% block title %}Task Details - MCP Platform{% endblock %}
 
 {% block content %}
 
 <div class="mb-6">
     <a href="{% url 'tasks:list' %}" class="text-indigo-600 hover:text-indigo-900">
-        &larr; Back to Tasks
+        ← Back to Tasks
     </a>
 </div>
 
-<!-- ================= TASK HEADER ================= -->
-<div class="bg-white shadow overflow-hidden sm:rounded-lg">
+<div class="bg-white shadow sm:rounded-lg">
+    <div class="px-4 py-5 sm:p-6">
 
-    <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
-        <div>
-            <h3 class="text-lg font-medium text-gray-900">{{ task.name }}</h3>
-            <p class="text-sm text-gray-500">Task ID: {{ task.id }}</p>
-        </div>
+        {% if error %}
+            <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
+                {{ error }}
+            </div>
+        {% endif %}
 
-        {% include "components/status_badge.html" with status=task.status %}
+        {% if task %}
+            <h3 class="text-lg font-medium text-gray-900 mb-4">
+                {{ task.name }}
+            </h3>
+
+            <div class="space-y-3 mb-6">
+
+                <p><strong>ID:</strong> {{ task.id }}</p>
+                <p><strong>Status:</strong> {{ task.status }}</p>
+                <p><strong>Priority:</strong> {{ task.priority }}</p>
+
+                <p>
+                    <strong>Description:</strong><br>
+                    {{ task.description|default:"—" }}
+                </p>
+
+                <p>
+                    <strong>Input:</strong><br>
+                    <pre class="bg-gray-100 p-2 rounded text-sm whitespace-pre-wrap break-words overflow-x-auto">
+{{ task.input|default:"null" }}
+                    </pre>
+                </p>
+
+                <p>
+                    <strong>Result:</strong><br>
+                    <pre class="bg-gray-100 p-3 rounded text-sm whitespace-pre-wrap break-words overflow-x-auto">
+{{ task.result|default:"Not executed yet" }}
+                    </pre>
+                </p>
+
+            </div>
+
+            <!-- ✅ EXECUTE TASK (CSRF SAFE, NO HTMX) -->
+            <form method="post" action="{% url 'tasks:execute' task.id %}">
+                {% csrf_token %}
+                
+                <button type="submit"
+                    class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                    ▶ Run Task
+                </button>
+            </form>
+
+        {% else %}
+            <p class="text-gray-500">Task not found.</p>
+        {% endif %}
+
     </div>
-
-    <div class="border-t border-gray-200">
-        <dl>
-
-            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                <dt class="text-sm font-medium text-gray-500">Description</dt>
-                <dd class="text-sm text-gray-900 sm:col-span-2">
-                    {{ task.description|default:"No description" }}
-                </dd>
-            </div>
-
-            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                <dt class="text-sm font-medium text-gray-500">Created At</dt>
-                <dd class="text-sm text-gray-900 sm:col-span-2">
-                    {{ task.created_at }}
-                </dd>
-            </div>
-
-            {% if task.result %}
-            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6">
-                <dt class="text-sm font-medium text-gray-500">Result</dt>
-                <dd class="text-sm text-gray-900 sm:col-span-2">
-                    <pre class="bg-gray-100 p-3 rounded text-xs overflow-auto">{{ task.result }}</pre>
-                </dd>
-            </div>
-            {% endif %}
-
-        </dl>
-    </div>
 </div>
-
-<!-- ================= ACTION BUTTON ================= -->
-<div class="mt-6">
-    <button onclick="startStream()"
-        class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700">
-        Run with Live Streaming
-    </button>
-</div>
-
-<!-- ================= STREAM SECTION ================= -->
-<div class="mt-6 border rounded bg-black text-green-400 font-mono text-xs p-4 h-96 overflow-auto">
-    <div id="stream-log">Waiting for execution...</div>
-</div>
-
-<!-- ================= SSE SCRIPT ================= -->
-<script>
-function startStream() {
-
-    const log = document.getElementById("stream-log");
-    log.innerHTML = "";
-
-    // ✅ IMPORTANT: hit backend directly (NOT Django)
-    const url = "http://127.0.0.1:8000/api/execute/stream?task_id={{ task.id }}";
-
-    const source = new EventSource(url);
-
-    let completed = false;
-
-    append("🟢 Connecting...");
-
-    source.onopen = function () {
-        append("🟢 Stream connected");
-    };
-
-    // 👇 ONLY fallback — do NOT rely on this
-    source.onmessage = function (event) {
-        try {
-            const data = JSON.parse(event.data);
-            append("📩 " + (data.type || "message"));
-        } catch (e) {
-            append("⚠️ invalid message");
-        }
-    };
-
-    source.addEventListener("planning_started", function () {
-        append("\n🧠 Planning started");
-    });
-
-    source.addEventListener("plan_created", function (event) {
-        const data = JSON.parse(event.data);
-        append("\n📋 Plan created (" + data.strategy + ")");
-    });
-
-    source.addEventListener("execution_started", function () {
-        append("\n⚡ Execution started");
-    });
-
-    source.addEventListener("step_started", function (event) {
-        const data = JSON.parse(event.data);
-        append("\n▶️ Step: " + data.step_name);
-    });
-
-    source.addEventListener("token_chunk", function (event) {
-        const data = JSON.parse(event.data);
-        appendInline(data.token || "");
-    });
-
-    source.addEventListener("step_completed", function () {
-        append("\n✅ Step completed");
-    });
-
-    source.addEventListener("execution_completed", function (event) {
-        const data = JSON.parse(event.data);
-        completed = true;
-
-        append("\n\n🎉 DONE");
-        append("\nOutput: " + (data.result?.output || ""));
-
-        source.close();
-    });
-
-    source.addEventListener("execution_failed", function (event) {
-        const data = JSON.parse(event.data);
-        completed = true;
-
-        append("\n❌ FAILED: " + (data.error || "unknown"));
-
-        source.close();
-    });
-
-    // ✅ CRITICAL FIX
-    source.onerror = function () {
-        if (!completed) {
-            append("\n⚠️ connection interrupted (retrying...)");
-        } else {
-            append("\n🔚 Stream finished");
-        }
-        // ❌ DO NOT close here
-    };
-
-    function append(text) {
-        log.innerHTML += text + "\n";
-        log.scrollTop = log.scrollHeight;
-    }
-
-    function appendInline(text) {
-        log.innerHTML += text;
-        log.scrollTop = log.scrollHeight;
-    }
-}
-</script>
 
 {% endblock %}

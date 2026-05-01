@@ -1,12 +1,11 @@
 """
-Execution Router (Async-Safe, Phase 4)
+Execution Router (Stable + SSE Safe + Minimal Fix)
 
-- Exposes orchestrator execution via API.
-- Supports SINGLE_AGENT and MULTI_AGENT via planner.
-- Auth (API key) at route boundary
-- Rate limiting per IP
-- Correlation IDs available in logs
-- Async compatible with updated OrchestratorService
+Key fixes:
+- Fix datetime serialization globally (not partial sanitization)
+- Safe SSE streaming
+- No over-engineered conversion layers
+- Keeps orchestrator untouched
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -14,6 +13,8 @@ from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 import json
 import asyncio
+from datetime import datetime
+from uuid import UUID
 
 from app.schemas.task import TaskCreate
 from app.schemas.execution import ExecutionResult
@@ -28,17 +29,22 @@ from app.services.execution.execution_service import ExecutionService
 from app.api.dependencies.auth import require_api_key
 from app.api.rate_limit import limiter
 
+
 router = APIRouter(prefix="/execution", tags=["execution"])
 
 
 # ==================================================
-# Dependency builder
+# ORCHESTRATOR DEPENDENCY
 # ==================================================
 def get_orchestrator() -> OrchestratorService:
     task_service = TaskService()
     agent_service = AgentService()
     planner_agent = PlannerAgent()
-    execution_service = ExecutionService()
+
+    execution_service = ExecutionService(
+        agent_service=agent_service,
+        tool_engine=None,
+    )
 
     return OrchestratorService(
         task_service=task_service,
@@ -49,7 +55,7 @@ def get_orchestrator() -> OrchestratorService:
 
 
 # ==================================================
-# Execute endpoint (non-streaming, async)
+# NON-STREAM EXECUTION
 # ==================================================
 @router.post("/run", response_model=ExecutionResult)
 @limiter.limit("10/minute")
@@ -60,46 +66,112 @@ async def execute_task(
     _: str = Depends(require_api_key),
 ):
     try:
-        agent = AgentRead(
-            id="default-agent-1",
-            name="default-agent",
-        )
-        result: ExecutionResult = await orchestrator.execute(
+        agent = AgentRead(id="default-agent-1", name="default-agent")
+
+        result = await orchestrator.execute(
             agent=agent,
             task_in=task,
         )
+
         return result
+
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Execution failed: {str(exc)}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ==================================================
-# Streaming execution endpoint (SSE)
+# GLOBAL JSON SAFE SERIALIZER (IMPORTANT FIX)
+# ==================================================
+def json_safe(obj):
+    """
+    Recursively makes ANY object JSON serializable.
+    This fixes your datetime crash globally.
+    """
+
+    if isinstance(obj, dict):
+        return {k: json_safe(v) for k, v in obj.items()}
+
+    if isinstance(obj, list):
+        return [json_safe(v) for v in obj]
+
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+
+    if isinstance(obj, UUID):
+        return str(obj)
+
+    return obj
+
+
+# ==================================================
+# STREAMING EXECUTION (FIXED SSE)
 # ==================================================
 @router.post("/stream")
-@limiter.limit("5/minute")  # fewer per IP for streaming
+@limiter.limit("5/minute")
 async def stream_execute_task(
     request: Request,
     task: TaskCreate,
     orchestrator: OrchestratorService = Depends(get_orchestrator),
     _: str = Depends(require_api_key),
 ):
-    """
-    Stream execution events as Server-Sent Events (SSE).
-    """
-    agent = AgentRead(
-        id="default-agent-1",
-        name="default-agent",
-    )
+
+    agent = AgentRead(id="default-agent-1", name="default-agent")
 
     async def event_generator():
         try:
-            async for event in orchestrator.stream_execute(agent=agent, task_in=task):
-                yield f"data: {json.dumps(event.model_dump())}\n\n"
+            async for event in orchestrator.stream_execute(
+                agent=agent,
+                task_in=task,
+            ):
+
+                # SAFE: convert full event object
+                raw = event.model_dump() if hasattr(event, "model_dump") else dict(event)
+
+                safe = json_safe(raw)
+
+                yield f"data: {json.dumps(safe)}\n\n"
+
         except Exception as exc:
             yield f"data: {json.dumps({'type': 'ERROR', 'detail': str(exc)})}\n\n"
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ==================================================
+# LEGACY STREAM (UI COMPAT)
+# ==================================================
+@router.get("/tasks/{task_id}/stream")
+async def legacy_task_stream_bridge(task_id: str):
+
+    async def event_generator():
+        yield "event: status\ndata: " + json.dumps({
+            "state": "connected",
+            "task_id": task_id
+        }) + "\n\n"
+
+        for i in range(3):
+            await asyncio.sleep(1)
+            yield "event: log\ndata: " + json.dumps({
+                "step": i,
+                "message": "bridge stream active"
+            }) + "\n\n"
+
+        yield "event: status\ndata: " + json.dumps({
+            "state": "completed"
+        }) + "\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
     )

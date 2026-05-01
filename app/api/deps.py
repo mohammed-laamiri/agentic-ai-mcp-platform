@@ -28,7 +28,7 @@ from app.services.execution.execution_service import ExecutionService
 from app.services.tool_registry import ToolRegistry
 from app.services.tool_execution_engine import ToolExecutionEngine
 
-# Runtime singletons
+# Runtime singletons (CRITICAL)
 from app.runtime.runtime import tool_registry, tool_execution_engine
 
 
@@ -38,27 +38,18 @@ from app.runtime.runtime import tool_registry, tool_execution_engine
 
 @lru_cache
 def get_app_settings() -> Settings:
-    """
-    Application settings singleton.
-    """
     return Settings()
 
 
 # =====================================================
-# Tool Runtime Singletons
+# Tool Runtime Singletons (FIXES YOUR ERROR)
 # =====================================================
 
 def get_tool_registry() -> ToolRegistry:
-    """
-    Global ToolRegistry singleton.
-    """
     return tool_registry
 
 
 def get_tool_execution_engine() -> ToolExecutionEngine:
-    """
-    Global ToolExecutionEngine singleton.
-    """
     return tool_execution_engine
 
 
@@ -70,9 +61,6 @@ _rag_service = RAGService()
 
 
 def get_rag_service() -> RAGService:
-    """
-    Global RAG service singleton.
-    """
     return _rag_service
 
 
@@ -100,18 +88,16 @@ def get_planner_agent() -> PlannerAgent:
 
 
 # =====================================================
-# Execution Layer
+# Execution Layer (IMPORTANT FIX)
 # =====================================================
 
 @lru_cache
 def get_execution_service() -> ExecutionService:
     """
     Execution dispatcher singleton.
+    IMPORTANT: ExecutionService takes NO args
     """
-    return ExecutionService(
-        agent_service=get_agent_service(),
-        tool_engine=get_tool_execution_engine(),  # ← FIXED
-    )
+    return ExecutionService()
 
 
 # =====================================================
@@ -120,17 +106,11 @@ def get_execution_service() -> ExecutionService:
 
 @lru_cache
 def get_memory_writer() -> MemoryWriter:
-    """
-    Memory writer singleton.
-    """
     return MemoryWriter()
 
 
 @lru_cache
 def get_orchestrator() -> OrchestratorService:
-    """
-    Top-level orchestrator singleton.
-    """
     return OrchestratorService(
         task_service=get_task_service(),
         agent_service=get_agent_service(),

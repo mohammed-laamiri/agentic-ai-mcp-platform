@@ -5,24 +5,20 @@ Responsible for:
 - Creating the FastAPI application instance
 - Loading configuration
 - Registering routers and middleware
-
-Phase 4 implemented:
-- Auth layer applied at route level
-- Correlation IDs & logging configured
-- Rate limiting middleware registered
 """
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 # Centralized settings
 from app.core.config import get_settings
 
-# Logging & observability (Phase 4.2)
+# Logging
 from app.core.logging import configure_logging
 from app.api.middleware.correlation import CorrelationIdMiddleware
 
-# Rate limiting (Phase 4.3)
+# Rate limiting
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.api.rate_limit import limiter
@@ -36,24 +32,14 @@ from app.api.routers.demo_router import router as demo_router
 from app.api.routers.execution_router import router as execution_router
 from app.api.routers.streaming import router as streaming_router
 
-# Runtime singletons (tool registry, execution engine)
-from app.runtime import runtime  # noqa: F401
+# Runtime init (important side effects)
+from app.runtime.runtime import tool_registry, tool_execution_engine
 
 
-# ------------------------------
-# Configure logging ONCE (global)
-# ------------------------------
 configure_logging()
 
 
 def create_app() -> FastAPI:
-    """
-    Application factory.
-
-    - Registers routers
-    - Configures middleware
-    - Registers rate limiting
-    """
     settings = get_settings()
 
     app = FastAPI(
@@ -63,30 +49,38 @@ def create_app() -> FastAPI:
     )
 
     # ------------------------------
-    # Correlation ID middleware
+    # ✅ CORS (CRITICAL FIX FOR DJANGO FRONTEND)
+    # ------------------------------
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:8001",
+            "http://localhost:8001",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # ------------------------------
+    # Middleware
     # ------------------------------
     app.add_middleware(CorrelationIdMiddleware)
 
-    # ------------------------------
-    # Rate limiting
-    # ------------------------------
     app.state.limiter = limiter
     app.add_middleware(SlowAPIMiddleware)
 
     @app.exception_handler(RateLimitExceeded)
-    async def rate_limit_exceeded_handler(request, exc):
-        """
-        Returns 429 when rate limit is exceeded.
-        """
+    async def rate_limit_handler(request, exc):
         return JSONResponse(
             status_code=429,
             content={"detail": "Rate limit exceeded. Try again later."},
         )
 
     # ------------------------------
-    # Root endpoint (fixes 404 on "/")
+    # Root
     # ------------------------------
-    @app.get("/", tags=["Root"])
+    @app.get("/")
     def root():
         return {
             "message": "Agentic AI MCP Platform API is running",
@@ -95,7 +89,7 @@ def create_app() -> FastAPI:
         }
 
     # ------------------------------
-    # Router registration
+    # ROUTES (CLEAN & CONSISTENT)
     # ------------------------------
     app.include_router(health_router, prefix="/api", tags=["Health"])
     app.include_router(task_router, prefix="/api/tasks", tags=["Tasks"])
@@ -103,11 +97,14 @@ def create_app() -> FastAPI:
     app.include_router(rag_router, prefix="/api", tags=["RAG"])
     app.include_router(tool_router, prefix="/api", tags=["Tools"])
     app.include_router(demo_router, prefix="/api", tags=["Demo"])
-    app.include_router(execution_router)
-    app.include_router(streaming_router, prefix="/api")
+
+    # Execution routes
+    app.include_router(execution_router, prefix="/api", tags=["Execution"])
+
+    # Streaming routes
+    app.include_router(streaming_router, prefix="/api", tags=["Streaming"])
 
     return app
 
 
-# ASGI app instance
 app = create_app()

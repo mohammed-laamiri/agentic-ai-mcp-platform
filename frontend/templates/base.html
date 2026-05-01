@@ -5,33 +5,69 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Agentic AI MCP Platform{% endblock %}</title>
 
-    <!-- TailwindCSS CDN -->
+    <!-- TailwindCSS -->
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- HTMX -->
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 
-    <!-- Custom styles -->
+    <!-- ======================================================
+         CSRF INITIALIZER (FIXED PROPERLY)
+    ====================================================== -->
+    <script>
+    (function () {
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.startsWith(name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        document.body.addEventListener('htmx:configRequest', function (event) {
+            const token = getCookie('csrftoken');
+            if (token) {
+                event.detail.headers['X-CSRFToken'] = token;
+            }
+        });
+    })();
+    </script>
+
+    <!-- Styles -->
     <style>
-        .htmx-indicator {
-            display: none;
-        }
-        .htmx-request .htmx-indicator {
-            display: inline-block;
-        }
-        .htmx-request.htmx-indicator {
-            display: inline-block;
-        }
+        .htmx-indicator { display: none; }
+        .htmx-request .htmx-indicator { display: inline-block; }
     </style>
+
 </head>
-<body class="bg-gray-100 min-h-screen">
+
+<!-- 🔥 FIX HERE -->
+<body class="bg-gray-100 min-h-screen flex flex-col">
+
+    <!-- CSRF -->
+    <form method="post" style="display:none;">
+        {% csrf_token %}
+    </form>
+
     {% include "components/navbar.html" %}
 
-    <main class="container mx-auto px-4 py-8">
+    <!-- 🔥 THIS IS THE KEY -->
+    <main class="flex-grow container mx-auto px-4 py-8">
+
         {% if messages %}
         <div class="mb-4">
             {% for message in messages %}
-            <div class="p-4 rounded-md mb-2 {% if message.tags == 'error' %}bg-red-100 text-red-700{% elif message.tags == 'success' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">
+            <div class="p-4 rounded-md mb-2
+                {% if message.tags == 'error' %}bg-red-100 text-red-700
+                {% elif message.tags == 'success' %}bg-green-100 text-green-700
+                {% else %}bg-blue-100 text-blue-700{% endif %}">
                 {{ message }}
             </div>
             {% endfor %}
@@ -39,14 +75,17 @@
         {% endif %}
 
         {% block content %}{% endblock %}
+
     </main>
 
-    <footer class="bg-gray-800 text-white py-4 mt-8">
-        <div class="container mx-auto px-4 text-center">
-            <p class="text-sm">Agentic AI MCP Platform - Django Frontend</p>
+    <!-- 🔥 REMOVE mt-8 -->
+    <footer class="bg-gray-800 text-white py-4">
+        <div class="text-center text-sm">
+            Agentic AI MCP Platform - Django Frontend
         </div>
     </footer>
 
     {% block extra_js %}{% endblock %}
+
 </body>
 </html>

@@ -11,40 +11,54 @@
             </div>
         </div>
     </td>
+
     <td class="px-6 py-4 whitespace-nowrap">
         {% include "components/status_badge.html" with status=task.status %}
     </td>
+
     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
         {{ task.priority|default:"1" }}
     </td>
+
     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
         {{ task.created_at|slice:":10" }}
     </td>
+
     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+
         {% if task.status == 'pending' %}
+
+        <!-- ✅ FIX: EXPLICIT CSRF FOR HTMX -->
         <button hx-post="{% url 'tasks:execute' task.id %}"
                 hx-target="#task-row-{{ task.id }}"
                 hx-swap="outerHTML"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                 class="text-indigo-600 hover:text-indigo-900 mr-2">
             Execute
             <span class="htmx-indicator">...</span>
         </button>
+
         <button hx-post="{% url 'tasks:complete' task.id %}"
                 hx-target="#task-row-{{ task.id }}"
                 hx-swap="outerHTML"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                 class="text-green-600 hover:text-green-900 mr-2">
             Complete
         </button>
+
         <button hx-post="{% url 'tasks:fail' task.id %}"
                 hx-target="#task-row-{{ task.id }}"
                 hx-swap="outerHTML"
+                hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'
                 class="text-red-600 hover:text-red-900">
             Fail
         </button>
+
         {% else %}
         <a href="{% url 'tasks:detail' task.id %}" class="text-gray-600 hover:text-gray-900">
             View
         </a>
         {% endif %}
+
     </td>
 </tr>
