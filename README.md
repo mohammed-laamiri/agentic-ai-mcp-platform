@@ -430,4 +430,4 @@ This project explores modern approaches to **agent-based AI system architecture*
 
 A detailed walkthrough of how the system works in a real scenario:
 
-👉 See [docs/use-case.md](docs/use-case.md)
+👉 see [📄 End-to-End Use Case](docs/use-case.md)
