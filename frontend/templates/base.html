@@ -48,16 +48,18 @@
 
 </head>
 
-<body class="bg-gray-100 min-h-screen">
+<!-- 🔥 FIX HERE -->
+<body class="bg-gray-100 min-h-screen flex flex-col">
 
-    <!-- ✅ CRITICAL: FORCE DJANGO TO SET CSRF COOKIE -->
+    <!-- CSRF -->
     <form method="post" style="display:none;">
         {% csrf_token %}
     </form>
 
     {% include "components/navbar.html" %}
 
-    <main class="container mx-auto px-4 py-8">
+    <!-- 🔥 THIS IS THE KEY -->
+    <main class="flex-grow container mx-auto px-4 py-8">
 
         {% if messages %}
         <div class="mb-4">
@@ -76,7 +78,8 @@
 
     </main>
 
-    <footer class="bg-gray-800 text-white py-4 mt-8">
+    <!-- 🔥 REMOVE mt-8 -->
+    <footer class="bg-gray-800 text-white py-4">
         <div class="text-center text-sm">
             Agentic AI MCP Platform - Django Frontend
         </div>
