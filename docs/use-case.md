@@ -53,6 +53,7 @@ This platform introduces:
 
 ## 🧠 Architecture
 
+```
 User
 ↓
 Django Frontend
@@ -68,7 +69,7 @@ Execution Engine
 Task Storage
 ↓
 Response → UI
-
+```
 
 ---
 
